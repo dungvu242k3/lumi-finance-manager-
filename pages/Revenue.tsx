@@ -11,6 +11,8 @@ interface Props {
 
 export const Revenue: React.FC<Props> = ({ transactions, setTransactions, accounts }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -31,12 +33,19 @@ export const Revenue: React.FC<Props> = ({ transactions, setTransactions, accoun
 
   const handleSave = () => {
     if (!newTrans.amount || !newTrans.accountCode) return;
-    const trans: Transaction = {
-      ...newTrans as Transaction,
-      id: Date.now().toString(),
-    };
-    setTransactions([...transactions, trans]);
+
+    if (editingId) {
+      setTransactions(transactions.map(t => t.id === editingId ? { ...t, ...newTrans } as Transaction : t));
+    } else {
+      const trans: Transaction = {
+        ...newTrans as Transaction,
+        id: Date.now().toString(),
+      };
+      setTransactions([...transactions, trans]);
+    }
+
     setIsModalOpen(false);
+    setEditingId(null);
     setNewTrans({
       date: new Date().toISOString().split('T')[0],
       source: 'Thu tiền từ bill',
@@ -48,6 +57,18 @@ export const Revenue: React.FC<Props> = ({ transactions, setTransactions, accoun
       method: 'CK về TK Công ty',
       type: TransactionType.REVENUE
     });
+  };
+
+  const handleEdit = (trans: Transaction) => {
+    setEditingId(trans.id);
+    setNewTrans(trans);
+    setIsModalOpen(true);
+  };
+
+  const handleDelete = (id: string) => {
+    if (window.confirm('Bạn có chắc muốn xóa khoản thu này?')) {
+      setTransactions(transactions.filter(t => t.id !== id));
+    }
   };
 
   const handleDownloadTemplate = () => {
@@ -73,16 +94,49 @@ export const Revenue: React.FC<Props> = ({ transactions, setTransactions, accoun
   };
 
   const handleImportClick = () => {
+    setIsImportModalOpen(true);
+  };
+
+  const handleRealImport = () => {
     fileInputRef.current?.click();
   };
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
-      setTimeout(() => {
-        alert(`Đã import dữ liệu thu từ file "${file.name}" thành công!`);
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const data = new Uint8Array(e.target?.result as ArrayBuffer);
+          const workbook = XLSX.read(data, { type: 'array' });
+          const sheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[sheetName];
+          const jsonData = XLSX.utils.sheet_to_json(worksheet);
+
+          const importedTransactions: Transaction[] = jsonData.map((row: any) => ({
+            id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
+            date: row['Ngay'] ? new Date(row['Ngay']).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+            source: row['Nguon_Thu'] || '',
+            branch: row['Chi_Nhanh'] as Branch || Branch.HN,
+            market: row['Thi_Truong'] as Market || Market.US,
+            accountCode: row['Ma_TK'] || '',
+            description: row['Noi_Dung'] || '',
+            amount: Number(row['So_Tien']) || 0,
+            method: row['Hinh_Thuc'] || 'CK',
+            type: TransactionType.REVENUE,
+          })).filter(t => t.amount > 0 && t.accountCode);
+
+          setTransactions(prev => [...prev, ...importedTransactions]);
+          alert(`Đã import thành công ${importedTransactions.length} khoản thu!`);
+          setIsImportModalOpen(false);
+        } catch (error) {
+          console.error("Error reading file:", error);
+          alert("Lỗi khi đọc file Excel. Vui lòng kiểm tra lại định dạng.");
+        }
+
         if (fileInputRef.current) fileInputRef.current.value = '';
-      }, 1000);
+      };
+      reader.readAsArrayBuffer(file);
     }
   };
 
@@ -95,9 +149,14 @@ export const Revenue: React.FC<Props> = ({ transactions, setTransactions, accoun
     return new Intl.DateTimeFormat('vi-VN').format(date);
   }
 
+  // Helper to remove accents and normalize string for search
+  const normalizeString = (str: string) => {
+    return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  };
+
   const filteredTrans = revenueTransactions.filter(t =>
-    t.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    t.accountCode.toLowerCase().includes(searchTerm.toLowerCase())
+    normalizeString(t.description).includes(normalizeString(searchTerm)) ||
+    normalizeString(t.accountCode).includes(normalizeString(searchTerm))
   );
 
   return (
@@ -122,6 +181,30 @@ export const Revenue: React.FC<Props> = ({ transactions, setTransactions, accoun
             <Download size={18} /> Tải mẫu
           </button>
 
+          <button
+            onClick={() => {
+              const exportData = revenueTransactions.map((t, index) => ({
+                'STT': index + 1,
+                'Ngay': t.date,
+                'Nguon_Thu': t.source,
+                'Chi_Nhanh': t.branch,
+                'Thi_Truong': t.market,
+                'Ma_TK': t.accountCode,
+                'Noi_Dung': t.description,
+                'So_Tien': t.amount,
+                'Hinh_Thuc': t.method
+              }));
+
+              const ws = XLSX.utils.json_to_sheet(exportData);
+              const wb = XLSX.utils.book_new();
+              XLSX.utils.book_append_sheet(wb, ws, "Doanh_Thu");
+              XLSX.writeFile(wb, `Doanh_Thu_${new Date().toISOString().split('T')[0]}.xlsx`);
+            }}
+            className="flex items-center gap-2 bg-white text-slate-700 border border-slate-300 hover:bg-slate-50 px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-sm"
+          >
+            <Download size={18} /> Xuất Excel
+          </button>
+
           <input
             type="file"
             ref={fileInputRef}
@@ -137,7 +220,21 @@ export const Revenue: React.FC<Props> = ({ transactions, setTransactions, accoun
           </button>
 
           <button
-            onClick={() => setIsModalOpen(true)}
+            onClick={() => {
+              setIsModalOpen(true);
+              setEditingId(null);
+              setNewTrans({
+                date: new Date().toISOString().split('T')[0],
+                source: 'Thu tiền từ bill',
+                branch: Branch.HN,
+                market: Market.US,
+                accountCode: '',
+                description: '',
+                amount: 0,
+                method: 'CK về TK Công ty',
+                type: TransactionType.REVENUE
+              });
+            }}
             className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors w-full sm:w-auto justify-center shadow-md"
           >
             <Plus size={18} /> Ghi nhận Thu
@@ -182,8 +279,8 @@ export const Revenue: React.FC<Props> = ({ transactions, setTransactions, accoun
                   </td>
                   <td className="px-4 py-3 text-right">
                     <div className="flex items-center justify-end gap-2">
-                      <button className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"><Edit2 size={16} /></button>
-                      <button className="p-1.5 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded transition-colors"><Trash2 size={16} /></button>
+                      <button onClick={() => handleEdit(t)} className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"><Edit2 size={16} /></button>
+                      <button onClick={() => handleDelete(t.id)} className="p-1.5 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded transition-colors"><Trash2 size={16} /></button>
                     </div>
                   </td>
                 </tr>
@@ -196,13 +293,71 @@ export const Revenue: React.FC<Props> = ({ transactions, setTransactions, accoun
         )}
       </div>
 
+      {/* Import Modal */}
+      {isImportModalOpen && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div className="bg-slate-50 px-6 py-4 border-b border-slate-200 flex justify-between items-center">
+              <h3 className="font-bold text-lg text-slate-800">Hướng dẫn Import Thu Excel</h3>
+              <button onClick={() => setIsImportModalOpen(false)} className="text-slate-400 hover:text-red-500 transition-colors"><X size={20} /></button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-sm text-green-800">
+                <p className="font-semibold mb-2">Cấu trúc file Excel bắt buộc:</p>
+                <ul className="list-disc list-inside space-y-1 ml-2">
+                  <li><strong>Ngay:</strong> Ngày thu (YYYY-MM-DD)</li>
+                  <li><strong>Nguon_Thu:</strong> Nguồn tiền (VD: Từ khách hàng)</li>
+                  <li><strong>Chi_Nhanh:</strong> {Object.values(Branch).join(', ')}</li>
+                  <li><strong>Thi_Truong:</strong> {Object.values(Market).join(', ')}</li>
+                  <li><strong>Ma_TK:</strong> Mã trong Master Data (VD: 1.1US)</li>
+                  <li><strong>Noi_Dung:</strong> Diễn giải chi tiết</li>
+                  <li><strong>So_Tien:</strong> Số tiền (Số nguyên)</li>
+                  <li><strong>Hinh_Thuc:</strong> CK, Tiền mặt...</li>
+                </ul>
+              </div>
+              <div className="text-sm text-slate-500 italic">
+                * Vui lòng tải file mẫu và nhập liệu đúng cột. Các dòng thiếu tiền hoặc mã TK sẽ bị bỏ qua.
+              </div>
+            </div>
+            <div className="bg-slate-50 px-6 py-4 border-t border-slate-200 flex justify-between gap-3">
+              <button
+                onClick={handleDownloadTemplate}
+                className="px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200 rounded-lg transition-colors border border-slate-300 flex items-center gap-2"
+              >
+                <Download size={16} /> Tải file mẫu
+              </button>
+              <div className="flex gap-2">
+                <button onClick={() => setIsImportModalOpen(false)} className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-200 rounded-lg transition-colors">Đóng</button>
+                <button onClick={handleRealImport} className="px-4 py-2 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors shadow-sm flex items-center gap-2">
+                  <Upload size={16} /> Chọn File
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
             <div className="bg-green-600 px-6 py-4 border-b border-green-700 flex justify-between items-center text-white">
-              <h3 className="font-bold text-lg flex items-center gap-2"><DollarSign size={20} /> Thêm Khoản Thu Mới</h3>
-              <button onClick={() => setIsModalOpen(false)} className="text-green-100 hover:text-white transition-colors"><X size={20} /></button>
+              <h3 className="font-bold text-lg flex items-center gap-2"><DollarSign size={20} /> {editingId ? 'Cập nhật Khoản Thu' : 'Thêm Khoản Thu Mới'}</h3>
+              <button onClick={() => {
+                setIsModalOpen(false);
+                setEditingId(null);
+                setNewTrans({
+                  date: new Date().toISOString().split('T')[0],
+                  source: 'Thu tiền từ bill',
+                  branch: Branch.HN,
+                  market: Market.US,
+                  accountCode: '',
+                  description: '',
+                  amount: 0,
+                  method: 'CK về TK Công ty',
+                  type: TransactionType.REVENUE
+                });
+              }} className="text-green-100 hover:text-white transition-colors"><X size={20} /></button>
             </div>
             <div className="p-6 space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -260,7 +415,7 @@ export const Revenue: React.FC<Props> = ({ transactions, setTransactions, accoun
                     type="number"
                     className="w-full border border-slate-300 rounded-lg p-2.5 text-sm font-bold text-green-700 focus:ring-2 focus:ring-green-500 outline-none"
                     placeholder="0"
-                    value={newTrans.amount}
+                    value={newTrans.amount || ''}
                     onChange={(e) => setNewTrans({ ...newTrans, amount: Number(e.target.value) })}
                   />
                 </div>
@@ -310,7 +465,21 @@ export const Revenue: React.FC<Props> = ({ transactions, setTransactions, accoun
               </div>
             </div>
             <div className="bg-slate-50 px-6 py-4 border-t border-slate-200 flex justify-end gap-3">
-              <button onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-200 rounded-lg transition-colors">Hủy</button>
+              <button onClick={() => {
+                setIsModalOpen(false);
+                setEditingId(null);
+                setNewTrans({
+                  date: new Date().toISOString().split('T')[0],
+                  source: 'Thu tiền từ bill',
+                  branch: Branch.HN,
+                  market: Market.US,
+                  accountCode: '',
+                  description: '',
+                  amount: 0,
+                  method: 'CK về TK Công ty',
+                  type: TransactionType.REVENUE
+                });
+              }} className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-200 rounded-lg transition-colors">Hủy</button>
               <button onClick={handleSave} className="px-4 py-2 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors shadow-sm">Lưu Khoản Thu</button>
             </div>
           </div>
