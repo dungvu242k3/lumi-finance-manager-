@@ -27,9 +27,24 @@ export const Revenue: React.FC<Props> = ({ transactions, setTransactions, accoun
     accountCode: '',
     description: '',
     amount: 0,
-    method: 'CK về TK Công ty',
+    method: '',
     type: TransactionType.REVENUE
   });
+
+  const resetForm = () => {
+    setNewTrans(prev => ({
+      ...prev,
+      date: new Date().toISOString().split('T')[0],
+      source: 'Thu tiền từ bill',
+      branch: Branch.HN,
+      market: Market.US,
+      accountCode: '',
+      description: '',
+      amount: 0,
+      method: ''
+    }));
+    setEditingId(null);
+  };
 
   const handleSave = () => {
     if (!newTrans.amount || !newTrans.accountCode) return;
@@ -45,18 +60,7 @@ export const Revenue: React.FC<Props> = ({ transactions, setTransactions, accoun
     }
 
     setIsModalOpen(false);
-    setEditingId(null);
-    setNewTrans({
-      date: new Date().toISOString().split('T')[0],
-      source: 'Thu tiền từ bill',
-      branch: Branch.HN,
-      market: Market.US,
-      accountCode: '',
-      description: '',
-      amount: 0,
-      method: 'CK về TK Công ty',
-      type: TransactionType.REVENUE
-    });
+    resetForm();
   };
 
   const handleEdit = (trans: Transaction) => {
@@ -222,18 +226,7 @@ export const Revenue: React.FC<Props> = ({ transactions, setTransactions, accoun
           <button
             onClick={() => {
               setIsModalOpen(true);
-              setEditingId(null);
-              setNewTrans({
-                date: new Date().toISOString().split('T')[0],
-                source: 'Thu tiền từ bill',
-                branch: Branch.HN,
-                market: Market.US,
-                accountCode: '',
-                description: '',
-                amount: 0,
-                method: 'CK về TK Công ty',
-                type: TransactionType.REVENUE
-              });
+              resetForm();
             }}
             className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors w-full sm:w-auto justify-center shadow-md"
           >
@@ -345,18 +338,7 @@ export const Revenue: React.FC<Props> = ({ transactions, setTransactions, accoun
               <h3 className="font-bold text-lg flex items-center gap-2"><DollarSign size={20} /> {editingId ? 'Cập nhật Khoản Thu' : 'Thêm Khoản Thu Mới'}</h3>
               <button onClick={() => {
                 setIsModalOpen(false);
-                setEditingId(null);
-                setNewTrans({
-                  date: new Date().toISOString().split('T')[0],
-                  source: 'Thu tiền từ bill',
-                  branch: Branch.HN,
-                  market: Market.US,
-                  accountCode: '',
-                  description: '',
-                  amount: 0,
-                  method: 'CK về TK Công ty',
-                  type: TransactionType.REVENUE
-                });
+                resetForm();
               }} className="text-green-100 hover:text-white transition-colors"><X size={20} /></button>
             </div>
             <div className="p-6 space-y-4">
@@ -467,18 +449,7 @@ export const Revenue: React.FC<Props> = ({ transactions, setTransactions, accoun
             <div className="bg-slate-50 px-6 py-4 border-t border-slate-200 flex justify-end gap-3">
               <button onClick={() => {
                 setIsModalOpen(false);
-                setEditingId(null);
-                setNewTrans({
-                  date: new Date().toISOString().split('T')[0],
-                  source: 'Thu tiền từ bill',
-                  branch: Branch.HN,
-                  market: Market.US,
-                  accountCode: '',
-                  description: '',
-                  amount: 0,
-                  method: 'CK về TK Công ty',
-                  type: TransactionType.REVENUE
-                });
+                resetForm();
               }} className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-200 rounded-lg transition-colors">Hủy</button>
               <button onClick={handleSave} className="px-4 py-2 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors shadow-sm">Lưu Khoản Thu</button>
             </div>
