@@ -221,61 +221,6 @@ export const ManagementReports: React.FC<Props> = ({ transactions, lockedKeys })
                         <strong className="text-red-600">Chỉ xem</strong> - Dữ liệu tự động từ Thu/Chi & Sổ quỹ
                     </p>
                 </div>
-
-                <div className="flex flex-wrap items-center gap-3">
-                    <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-slate-400 uppercase">Kỳ:</span>
-                        <select
-                            value={selectedPeriod}
-                            onChange={(e) => setSelectedPeriod(e.target.value as any)}
-                            className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-slate-50 outline-none focus:ring-2 focus:ring-blue-500"
-                        >
-                            <option value="month">Tháng</option>
-                            <option value="quarter">Quý</option>
-                            <option value="year">Năm</option>
-                        </select>
-                    </div>
-
-                    {selectedPeriod === 'month' && (
-                        <div className="flex items-center gap-2">
-                            <span className="text-xs font-bold text-slate-400 uppercase">Tháng:</span>
-                            <input
-                                type="month"
-                                value={selectedMonth}
-                                onChange={(e) => setSelectedMonth(e.target.value)}
-                                className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-slate-50 outline-none focus:ring-2 focus:ring-blue-500"
-                            />
-                        </div>
-                    )}
-
-                    <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-slate-400 uppercase">Chi nhánh:</span>
-                        <select
-                            value={selectedBranch}
-                            onChange={(e) => setSelectedBranch(e.target.value)}
-                            className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-slate-50 outline-none focus:ring-2 focus:ring-blue-500"
-                        >
-                            <option value="ALL">Tất cả</option>
-                            {Object.values(Branch).map(b => (
-                                <option key={b} value={b}>{b}</option>
-                            ))}
-                        </select>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-slate-400 uppercase">Thị trường:</span>
-                        <select
-                            value={selectedMarket}
-                            onChange={(e) => setSelectedMarket(e.target.value)}
-                            className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-slate-50 outline-none focus:ring-2 focus:ring-blue-500"
-                        >
-                            <option value="ALL">Tất cả</option>
-                            {Object.values(Market).filter(m => m !== Market.NONE).map(m => (
-                                <option key={m} value={m}>{m}</option>
-                            ))}
-                        </select>
-                    </div>
-                </div>
             </div>
 
             {/* Tabs */}
@@ -553,6 +498,53 @@ export const ManagementReports: React.FC<Props> = ({ transactions, lockedKeys })
                             Chi phí chung được <strong className="text-blue-600">phân bổ theo tỷ trọng doanh thu</strong> của từng sản phẩm.
                             Để có báo cáo chính xác hơn, cần bổ sung thông tin Sản phẩm/SKU và phân loại chi phí chi tiết vào hệ thống.
                         </p>
+                    </div>
+
+                    {/* Bảng 4.1: Báo cáo nhanh/tạm tính */}
+                    <div className="bg-orange-50 p-4 rounded-lg border-2 border-orange-300 mt-6">
+                        <h3 className="font-bold text-orange-900 mb-2">Bảng 4.1: Báo cáo nhanh/tạm tính</h3>
+                        <p className="text-xs text-orange-700 mb-3">Công thức: Sản lượng = Đơn chốt × 90% | DT = Doanh số chốt × 90% × 86%</p>
+
+                        <div className="bg-white p-3 rounded mb-3 flex gap-4">
+                            <div className="flex items-center gap-2">
+                                <label className="text-xs font-semibold">Số đơn chốt:</label>
+                                <input type="number" className="border rounded px-2 py-1 text-sm w-28" placeholder="0" />
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <label className="text-xs font-semibold">Doanh số chốt:</label>
+                                <input type="number" className="border rounded px-2 py-1 text-sm w-40" placeholder="0" />
+                            </div>
+                        </div>
+
+                        <div className="bg-white p-3 rounded grid grid-cols-4 gap-3">
+                            <div className="bg-orange-50 p-2 rounded text-center">
+                                <p className="text-xs text-slate-600">Sản lượng UL</p>
+                                <p className="text-lg font-bold">--- đơn</p>
+                            </div>
+                            <div className="bg-orange-50 p-2 rounded text-center">
+                                <p className="text-xs text-slate-600">DT ước lượng</p>
+                                <p className="text-lg font-bold text-green-600">--- ₫</p>
+                            </div>
+                            <div className="bg-orange-50 p-2 rounded text-center">
+                                <p className="text-xs text-slate-600">Tỷ lệ</p>
+                                <p className="text-lg font-bold text-blue-600">77.4%</p>
+                            </div>
+                            <div className="bg-orange-50 p-2 rounded text-center">
+                                <p className="text-xs text-slate-600">Trạng thái</p>
+                                <p className="text-sm font-semibold text-orange-600">Tạm tính</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Bảng 4.2: Báo cáo chính thức */}
+                    <div className="bg-green-50 p-4 rounded-lg border-2 border-green-300 mt-6">
+                        <h3 className="font-bold text-green-900 mb-2">Bảng 4.2: Báo cáo chính thức</h3>
+                        <p className="text-xs text-green-700 mb-3">Sau ngày 12 tháng n+2 - Accrual accounting</p>
+
+                        <div className="bg-white p-4 rounded text-center">
+                            <p className="text-sm text-slate-500">📅 Báo cáo sẽ khả dụng sau ngày 12 tháng n+2</p>
+                            <p className="text-xs text-slate-400 mt-2">Dữ liệu thực tế - Chi phí match với doanh thu</p>
+                        </div>
                     </div>
                 </div>
             )}
