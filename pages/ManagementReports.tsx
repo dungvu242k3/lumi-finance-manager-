@@ -1,5 +1,6 @@
 import { Download } from 'lucide-react';
 import React, { useMemo, useState } from 'react';
+import * as XLSX from 'xlsx';
 import { Branch, Market, Transaction, TransactionType } from '../types';
 
 interface Props {
@@ -211,6 +212,73 @@ export const ManagementReports: React.FC<Props> = ({ transactions, lockedKeys })
         return Array.from(products).sort();
     }, [transactions]);
 
+    // Export handlers
+    const handleExportTable1 = () => {
+        const rows = [...reportByBranch.data, reportByBranch.total];
+        const data = rows.map(row => ({
+            'Chi nhánh': row.branch === 'TOTAL' ? 'Tổng cộng' : row.branch,
+            'Tổng Thu (VNĐ)': row.rev,
+            'Tổng Chi (VNĐ)': row.exp,
+            'Lãi/Lỗ (VNĐ)': row.profit,
+            'Tỷ suất LN (%)': row.margin.toFixed(2)
+        }));
+        const ws = XLSX.utils.json_to_sheet(data);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Thu-Chi theo Chi nhánh');
+        XLSX.writeFile(wb, `Bao_cao_Thu_Chi_Chi_nhanh_${selectedMonth}.xlsx`);
+    };
+
+    const handleExportTable2 = () => {
+        const rows = [...reportByMarket.data, reportByMarket.total];
+        const data = rows.map(row => ({
+            'Thị trường': row.market,
+            'Tổng Thu (VNĐ)': row.rev,
+            'Tổng Chi (VNĐ)': row.exp,
+            'Lãi/Lỗ (VNĐ)': row.profit,
+            'Tỷ suất LN (%)': row.margin.toFixed(2),
+            'Ghi chú': row.note
+        }));
+        const ws = XLSX.utils.json_to_sheet(data);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Thu-Chi theo Thị trường');
+        XLSX.writeFile(wb, `Bao_cao_Thu_Chi_Thi_truong_${selectedMonth}.xlsx`);
+    };
+
+    const handleExportTable3 = () => {
+        const data = cashFlowReport.map(row => ({
+            'Tháng': row.month,
+            'Số dư đầu kỳ (VNĐ)': row.opening,
+            'Tổng Thu (VNĐ)': row.rev,
+            'Tổng Chi (VNĐ)': row.exp,
+            'Số dư cuối kỳ (VNĐ)': row.closing,
+            'Trạng thái': row.status
+        }));
+        const ws = XLSX.utils.json_to_sheet(data);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Dòng tiền theo Tháng');
+        XLSX.writeFile(wb, `Bao_cao_Dong_tien_${selectedMonth}.xlsx`);
+    };
+
+    const handleExportTable4 = () => {
+        const data = businessResultsReport.map((row, index) => ({
+            'STT': index + 1,
+            'Tháng/Năm': selectedMonth,
+            'Sản phẩm': row.product,
+            'Thị trường': row.market,
+            'Chi nhánh': row.branch,
+            'Sản lượng': row.quantity,
+            'Doanh thu (VNĐ)': row.revenue,
+            'Tỷ trọng DT (%)': row.revenueWeight.toFixed(2),
+            'Giá vốn (VNĐ)': row.cogs,
+            'Chi phí chung (VNĐ)': row.opex,
+            'Lợi nhuận (VNĐ)': row.profit
+        }));
+        const ws = XLSX.utils.json_to_sheet(data);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Kết quả kinh doanh');
+        XLSX.writeFile(wb, `Bao_cao_Ket_qua_kinh_doanh_${selectedMonth}.xlsx`);
+    };
+
     return (
         <div className="space-y-6">
             {/* Header & Filters */}
@@ -252,7 +320,7 @@ export const ManagementReports: React.FC<Props> = ({ transactions, lockedKeys })
                     <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
                         <div className="flex justify-between items-center mb-4">
                             <h3 className="font-bold text-slate-700">Bảng 1: Báo cáo Thu – Chi theo Chi nhánh</h3>
-                            <button className="text-blue-600 hover:text-blue-800 text-sm font-medium flex items-center gap-1">
+                            <button onClick={handleExportTable1} className="text-blue-600 hover:text-blue-800 text-sm font-medium flex items-center gap-1">
                                 <Download size={14} /> Xuất Excel
                             </button>
                         </div>
@@ -300,7 +368,7 @@ export const ManagementReports: React.FC<Props> = ({ transactions, lockedKeys })
                     <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
                         <div className="flex justify-between items-center mb-4">
                             <h3 className="font-bold text-slate-700">Bảng 2: Báo cáo Thu – Chi theo Thị trường</h3>
-                            <button className="text-blue-600 hover:text-blue-800 text-sm font-medium flex items-center gap-1">
+                            <button onClick={handleExportTable2} className="text-blue-600 hover:text-blue-800 text-sm font-medium flex items-center gap-1">
                                 <Download size={14} /> Xuất Excel
                             </button>
                         </div>
@@ -351,7 +419,7 @@ export const ManagementReports: React.FC<Props> = ({ transactions, lockedKeys })
                     <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
                         <div className="flex justify-between items-center mb-4">
                             <h3 className="font-bold text-slate-700">Bảng 3: Báo cáo Dòng tiền theo Tháng</h3>
-                            <button className="text-blue-600 hover:text-blue-800 text-sm font-medium flex items-center gap-1">
+                            <button onClick={handleExportTable3} className="text-blue-600 hover:text-blue-800 text-sm font-medium flex items-center gap-1">
                                 <Download size={14} /> Xuất Excel
                             </button>
                         </div>
@@ -393,7 +461,7 @@ export const ManagementReports: React.FC<Props> = ({ transactions, lockedKeys })
                         <div className="flex flex-col gap-3 mb-4">
                             <div className="flex justify-between items-center">
                                 <h3 className="font-bold text-slate-700">Bảng 4: Báo cáo Kết quả kinh doanh theo sản phẩm, thị trường, chi nhánh</h3>
-                                <button className="text-blue-600 hover:text-blue-800 text-sm font-medium flex items-center gap-1">
+                                <button onClick={handleExportTable4} className="text-blue-600 hover:text-blue-800 text-sm font-medium flex items-center gap-1">
                                     <Download size={14} /> Xuất Excel
                                 </button>
                             </div>
