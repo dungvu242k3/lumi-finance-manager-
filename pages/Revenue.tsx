@@ -7,9 +7,10 @@ interface Props {
   transactions: Transaction[];
   setTransactions: React.Dispatch<React.SetStateAction<Transaction[]>>;
   accounts: AccountCode[];
+  lockedKeys: string[];
 }
 
-export const Revenue: React.FC<Props> = ({ transactions, setTransactions, accounts }) => {
+export const Revenue: React.FC<Props> = ({ transactions, setTransactions, accounts, lockedKeys }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -47,7 +48,14 @@ export const Revenue: React.FC<Props> = ({ transactions, setTransactions, accoun
   };
 
   const handleSave = () => {
-    if (!newTrans.amount || !newTrans.accountCode) return;
+    if (!newTrans.amount || !newTrans.accountCode || !newTrans.date) return;
+
+    const transMonth = newTrans.date?.substring(0, 7);
+    const lockKey = `${transMonth}_${newTrans.accountCode}_${newTrans.branch}`;
+    if (lockedKeys.includes(lockKey)) {
+      alert(`Giao dịch cho tài khoản ${newTrans.accountCode} tại chi nhánh ${newTrans.branch} trong tháng ${transMonth} đã bị KHÓA SỔ. Không thể thực hiện thay đổi.`);
+      return;
+    }
 
     if (editingId) {
       setTransactions(transactions.map(t => t.id === editingId ? { ...t, ...newTrans } as Transaction : t));
@@ -64,12 +72,28 @@ export const Revenue: React.FC<Props> = ({ transactions, setTransactions, accoun
   };
 
   const handleEdit = (trans: Transaction) => {
+    const transMonth = trans.date.substring(0, 7);
+    const lockKey = `${transMonth}_${trans.accountCode}_${trans.branch}`;
+    if (lockedKeys.includes(lockKey)) {
+      alert(`Giao dịch cho tài khoản ${trans.accountCode} tại chi nhánh ${trans.branch} trong tháng ${transMonth} đã bị KHÓA SỔ. Không thể chỉnh sửa.`);
+      return;
+    }
     setEditingId(trans.id);
     setNewTrans(trans);
     setIsModalOpen(true);
   };
 
   const handleDelete = (id: string) => {
+    const trans = transactions.find(t => t.id === id);
+    if (trans) {
+      const transMonth = trans.date.substring(0, 7);
+      const lockKey = `${transMonth}_${trans.accountCode}_${trans.branch}`;
+      if (lockedKeys.includes(lockKey)) {
+        alert(`Giao dịch cho tài khoản ${trans.accountCode} tại chi nhánh ${trans.branch} trong tháng ${transMonth} đã bị KHÓA SỔ. Không thể xóa.`);
+        return;
+      }
+    }
+
     if (window.confirm('Bạn có chắc muốn xóa khoản thu này?')) {
       setTransactions(transactions.filter(t => t.id !== id));
     }
@@ -128,10 +152,21 @@ export const Revenue: React.FC<Props> = ({ transactions, setTransactions, accoun
             amount: Number(row['So_Tien']) || 0,
             method: row['Hinh_Thuc'] || 'CK',
             type: TransactionType.REVENUE,
-          })).filter(t => t.amount > 0 && t.accountCode);
+          })).filter(t => {
+            if (t.amount <= 0 || !t.accountCode) return false;
+            const transMonth = t.date.substring(0, 7);
+            const lockKey = `${transMonth}_${t.accountCode}_${t.branch}`;
+            return !lockedKeys.includes(lockKey);
+          });
+
+          if (importedTransactions.length < jsonData.length) {
+            const blockedCount = jsonData.length - importedTransactions.length;
+            alert(`Đã import thành công ${importedTransactions.length} khoản thu. Đã bỏ qua ${blockedCount} dòng do dữ liệu lỗi hoặc thuộc Tài khoản/Chi nhánh đã KHÓA SỔ.`);
+          } else {
+            alert(`Đã import thành công ${importedTransactions.length} khoản thu!`);
+          }
 
           setTransactions(prev => [...prev, ...importedTransactions]);
-          alert(`Đã import thành công ${importedTransactions.length} khoản thu!`);
           setIsImportModalOpen(false);
         } catch (error) {
           console.error("Error reading file:", error);

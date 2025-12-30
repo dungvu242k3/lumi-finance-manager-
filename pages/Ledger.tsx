@@ -1,21 +1,37 @@
-import { Lock, Search } from 'lucide-react';
+import { Lock, Search, X } from 'lucide-react';
 import React, { useMemo, useState } from 'react';
 import { Branch, Transaction, TransactionType } from '../types';
 
 interface Props {
   transactions: Transaction[];
+  lockedKeys: string[];
+  setLockedKeys: React.Dispatch<React.SetStateAction<string[]>>;
 }
 
-export const Ledger: React.FC<Props> = ({ transactions }) => {
+export const Ledger: React.FC<Props> = ({ transactions, lockedKeys, setLockedKeys }) => {
   const [activeTab, setActiveTab] = useState<'daily' | 'monthly'>('daily');
 
   // Filters for Daily Ledger
   const [filterBranch, setFilterBranch] = useState<Branch | 'All'>('All');
   const [filterAccount, setFilterAccount] = useState<string>('All');
   const [dateRange, setDateRange] = useState({ start: '', end: '' });
+  const [viewingTrans, setViewingTrans] = useState<Transaction | null>(null);
 
   // Filters for Monthly Ledger
   const [filterMonth, setFilterMonth] = useState<string>('2025-12');
+
+  const handleToggleLock = (month: string, code: string, branch: string) => {
+    const key = `${month}_${code}_${branch}`;
+    if (lockedKeys.includes(key)) {
+      if (window.confirm(`Bạn muốn MỞ khóa sổ cho tài khoản ${code} - ${branch} trong tháng ${month}?`)) {
+        setLockedKeys(prev => prev.filter(k => k !== key));
+      }
+    } else {
+      if (window.confirm(`Bạn muốn KHÓA sổ cho tài khoản ${code} - ${branch} trong tháng ${month}?`)) {
+        setLockedKeys(prev => [...prev, key]);
+      }
+    }
+  };
 
   // --- DATA COMPUTATION ---
 
@@ -79,35 +95,48 @@ export const Ledger: React.FC<Props> = ({ transactions }) => {
         rev,
         exp,
         closing: currentBalance,
-        locked: month < '2025-12' // Mock locking logic: past months locked
+        locked: false
       };
     });
 
-    // If specific view required, we can return array.
-    // The UI requirement shows "Table 2: Monthly Summary... Dropdown Month... List Accounts?".
-    // Actually the requirement table shows "STT | Ma TK | Chi Nhanh | ..."
-    // This implies breaking down the monthly summary BY ACCOUNT CODE and BRANCH.
-
+    const priorTrans = sorted.filter(t => t.date < filterMonth);
     const relevantTrans = sorted.filter(t => t.date.startsWith(filterMonth));
 
     // Aggregate by Account Code + Branch
-    const breakdown: Record<string, { code: string, branch: string, rev: number, exp: number }> = {};
+    const breakdown: Record<string, { code: string, branch: string, opening: number, rev: number, exp: number, isLocked: boolean }> = {};
 
+    // 1. Initialize with historical opening balances
+    priorTrans.forEach(t => {
+      const key = `${t.accountCode}_${t.branch}`;
+      if (!breakdown[key]) {
+        breakdown[key] = { code: t.accountCode, branch: t.branch, opening: 0, rev: 0, exp: 0, isLocked: false };
+      }
+      if (t.type === TransactionType.REVENUE) breakdown[key].opening += t.amount;
+      else breakdown[key].opening -= t.amount;
+    });
+
+    // 2. Add current month's activity
     relevantTrans.forEach(t => {
       const key = `${t.accountCode}_${t.branch}`;
       if (!breakdown[key]) {
-        breakdown[key] = { code: t.accountCode, branch: t.branch, rev: 0, exp: 0 };
+        breakdown[key] = { code: t.accountCode, branch: t.branch, opening: 0, rev: 0, exp: 0, isLocked: false };
       }
       if (t.type === TransactionType.REVENUE) breakdown[key].rev += t.amount;
       else breakdown[key].exp += t.amount;
     });
 
+    // 3. Mark lock status for each row
+    Object.values(breakdown).forEach(item => {
+      const lockKey = `${filterMonth}_${item.code}_${item.branch}`;
+      item.isLocked = lockedKeys.includes(lockKey);
+    });
+
     return {
       monthStats: months[filterMonth] || { opening: 0, rev: 0, exp: 0, closing: 0, locked: false },
-      details: Object.values(breakdown)
+      details: Object.values(breakdown).filter(item => item.opening !== 0 || item.rev !== 0 || item.exp !== 0)
     };
 
-  }, [transactions, filterMonth]);
+  }, [transactions, filterMonth, lockedKeys]);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
@@ -149,11 +178,21 @@ export const Ledger: React.FC<Props> = ({ transactions }) => {
           <div className="flex flex-col xl:flex-row gap-4 bg-white p-4 rounded-lg shadow-sm border border-slate-200">
             <div className="flex items-center gap-2">
               <span className="text-sm text-slate-500 font-medium">Từ ngày:</span>
-              <input type="date" className="border border-slate-300 rounded px-2 py-1.5 text-sm" onChange={e => setDateRange(prev => ({ ...prev, start: e.target.value }))} />
+              <input
+                type="date"
+                className="border border-slate-300 rounded px-2 py-1.5 text-sm"
+                value={dateRange.start}
+                onChange={e => setDateRange(prev => ({ ...prev, start: e.target.value }))}
+              />
             </div>
             <div className="flex items-center gap-2">
               <span className="text-sm text-slate-500 font-medium">Đến ngày:</span>
-              <input type="date" className="border border-slate-300 rounded px-2 py-1.5 text-sm" onChange={e => setDateRange(prev => ({ ...prev, end: e.target.value }))} />
+              <input
+                type="date"
+                className="border border-slate-300 rounded px-2 py-1.5 text-sm"
+                value={dateRange.end}
+                onChange={e => setDateRange(prev => ({ ...prev, end: e.target.value }))}
+              />
             </div>
 
             <div className="flex flex-1 gap-4 xl:justify-end">
@@ -222,7 +261,7 @@ export const Ledger: React.FC<Props> = ({ transactions }) => {
                         {formatCurrency(t.runningBalance)}
                       </td>
                       <td className="px-4 py-3 text-center text-slate-400">
-                        <button className="hover:text-blue-600" title="Xem chi tiết"><Search size={16} /></button>
+                        <button onClick={() => setViewingTrans(t)} className="hover:text-blue-600" title="Xem chi tiết"><Search size={16} /></button>
                       </td>
                     </tr>
                   ))}
@@ -276,17 +315,20 @@ export const Ledger: React.FC<Props> = ({ transactions }) => {
                       <td className="px-4 py-3 text-center text-slate-500">{index + 1}</td>
                       <td className="px-4 py-3 font-mono text-blue-600 font-medium">{item.code}</td>
                       <td className="px-4 py-3 text-slate-700">{item.branch}</td>
-                      <td className="px-4 py-3 text-right text-slate-400 italic">0 ₫</td> {/* Simplification: breakdown opening bal is complex without comprehensive history */}
+                      <td className="px-4 py-3 text-right text-slate-600 font-medium">{formatCurrency(item.opening)}</td>
                       <td className="px-4 py-3 text-right text-green-600">{formatCurrency(item.rev)}</td>
                       <td className="px-4 py-3 text-right text-red-600">{formatCurrency(item.exp)}</td>
-                      <td className="px-4 py-3 text-right font-bold text-slate-800">{formatCurrency(item.rev - item.exp)}</td>
+                      <td className="px-4 py-3 text-right font-bold text-slate-800">{formatCurrency(item.opening + item.rev - item.exp)}</td>
                       <td className="px-4 py-3 text-center">
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${monthlyLedgerData.monthStats.locked ? 'bg-slate-100 text-slate-600' : 'bg-green-100 text-green-600'}`}>
-                          {monthlyLedgerData.monthStats.locked ? 'Đã khóa' : 'Đang mở'}
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${item.isLocked ? 'bg-slate-100 text-slate-600' : 'bg-green-100 text-green-600'}`}>
+                          {item.isLocked ? 'Đã khóa' : 'Đang mở'}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-center">
-                        {monthlyLedgerData.monthStats.locked ? <Lock size={16} className="mx-auto text-slate-400" /> : <span className="text-xs text-blue-600 cursor-pointer">Khóa</span>}
+                        {item.isLocked ?
+                          <button onClick={() => handleToggleLock(filterMonth, item.code, item.branch)} title="Mở khóa" className="text-slate-400 hover:text-blue-600 transition-colors"><Lock size={16} className="mx-auto" /></button> :
+                          <button onClick={() => handleToggleLock(filterMonth, item.code, item.branch)} className="text-xs text-blue-600 hover:text-blue-800 font-medium transition-colors">Khóa sổ</button>
+                        }
                       </td>
                     </tr>
                   ))}
@@ -294,6 +336,72 @@ export const Ledger: React.FC<Props> = ({ transactions }) => {
               </table>
             </div>
             {monthlyLedgerData.details.length === 0 && <div className="p-8 text-center text-slate-500">Tháng này chưa có phát sinh dữ liệu.</div>}
+          </div>
+        </div>
+      )}
+      {/* Detail Modal */}
+      {viewingTrans && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div className={`px-6 py-4 border-b flex justify-between items-center text-white ${viewingTrans.type === TransactionType.REVENUE ? 'bg-green-600 border-green-700' : 'bg-red-600 border-red-700'}`}>
+              <h3 className="font-bold text-lg">Chi tiết Giao dịch</h3>
+              <button onClick={() => setViewingTrans(null)} className="text-white/80 hover:text-white transition-colors"><X size={20} /></button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Ngày ghi nhận</label>
+                  <div className="font-medium text-slate-900">{formatDate(viewingTrans.date)}</div>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Loại giao dịch</label>
+                  <span className={`px-2 py-1 rounded text-xs font-bold ${viewingTrans.type === TransactionType.REVENUE ? 'text-green-700 bg-green-50' : 'text-red-700 bg-red-50'}`}>
+                    {viewingTrans.type}
+                  </span>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Chi nhánh</label>
+                  <div className="font-medium text-slate-900">{viewingTrans.branch}</div>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Thị trường</label>
+                  <div className="font-medium text-slate-900">{viewingTrans.market}</div>
+                </div>
+              </div>
+
+              <div className="bg-slate-50 p-4 rounded-lg border border-slate-100">
+                <div className="grid grid-cols-2 gap-4 mb-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Mã Tài Khoản</label>
+                    <div className="font-mono font-bold text-blue-600">{viewingTrans.accountCode}</div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Số tiền</label>
+                    <div className={`font-bold text-lg ${viewingTrans.type === TransactionType.REVENUE ? 'text-green-600' : 'text-red-600'}`}>
+                      {formatCurrency(viewingTrans.amount)}
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Nội dung</label>
+                  <div className="font-medium text-slate-900">{viewingTrans.description}</div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Nguồn phát sinh</label>
+                  <div className="font-medium text-slate-900">{viewingTrans.source}</div>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Hình thức</label>
+                  <div className="font-medium text-slate-900">{viewingTrans.method || '-'}</div>
+                </div>
+              </div>
+            </div>
+            <div className="bg-slate-50 px-6 py-4 border-t border-slate-200 flex justify-end">
+              <button onClick={() => setViewingTrans(null)} className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-200 rounded-lg transition-colors">Đóng</button>
+            </div>
           </div>
         </div>
       )}
