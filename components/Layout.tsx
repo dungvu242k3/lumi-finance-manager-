@@ -1,4 +1,4 @@
-import { Bell, BookOpen, CreditCard, Database, LayoutDashboard, Menu, UserCircle, Wallet, X } from 'lucide-react';
+import { BarChart3, Bell, BookOpen, CreditCard, Database, LayoutDashboard, Menu, UserCircle, Wallet, X } from 'lucide-react';
 import React from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 
@@ -15,6 +15,7 @@ const Sidebar = ({ isOpen, setIsOpen }: SidebarProps) => {
     { name: 'Quản lý Thu', path: '/revenue', icon: <Wallet size={20} /> },
     { name: 'Quản lý Chi', path: '/cost', icon: <CreditCard size={20} /> },
     { name: 'Sổ quỹ & Dòng tiền', path: '/ledger', icon: <BookOpen size={20} /> },
+    { name: 'Báo cáo tài chính quản trị', path: '/management-reports', icon: <BarChart3 size={20} /> },
   ];
 
   return (
@@ -84,7 +85,8 @@ export const Layout = () => {
   const getTitle = () => {
     const path = location.pathname;
 
-    if (path === '/') return 'Báo cáo Tài chính Quản trị';
+    if (path === '/') return 'Tổng quan & Báo cáo';
+    if (path.startsWith('/management-reports')) return 'Báo cáo tài chính quản trị';
     if (path.startsWith('/master-data')) return 'Quản lý tài chính nền tảng';
     if (path.startsWith('/revenue')) return 'Quản lý Thu';
     if (path.startsWith('/cost')) return 'Quản lý Chi phí';

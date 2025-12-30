@@ -4,6 +4,7 @@ import { Layout } from './components/Layout';
 import { INITIAL_ACCOUNTS, INITIAL_TRANSACTIONS } from './constants';
 import { Cost } from './pages/Cost';
 import { Ledger } from './pages/Ledger';
+import { ManagementReports } from './pages/ManagementReports';
 import { MasterData } from './pages/MasterData';
 import { Reports } from './pages/Reports';
 import { Revenue } from './pages/Revenue';
@@ -35,6 +36,10 @@ function App() {
           <Route
             path="ledger"
             element={<Ledger transactions={transactions} lockedKeys={lockedKeys} setLockedKeys={setLockedKeys} />}
+          />
+          <Route
+            path="management-reports"
+            element={<ManagementReports transactions={transactions} lockedKeys={lockedKeys} />}
           />
         </Route>
       </Routes>
