@@ -212,6 +212,31 @@ export const ManagementReports: React.FC<Props> = ({ transactions, lockedKeys })
         return Array.from(products).sort();
     }, [transactions]);
 
+    // Generic export helper to adjust column widths
+    const exportToExcel = (data: any[], fileName: string, sheetName: string, colWidths: number[]) => {
+        const ws = XLSX.utils.json_to_sheet(data);
+
+        // Set column widths
+        ws['!cols'] = colWidths.map(w => ({ wch: w }));
+
+        // Simple number formatting for all numeric cells (optional iteration)
+        const range = XLSX.utils.decode_range(ws['!ref'] || "A1:A1");
+        for (let R = range.s.r; R <= range.e.r; ++R) {
+            for (let C = range.s.c; C <= range.e.c; ++C) {
+                const cell_address = XLSX.utils.encode_cell({ r: R, c: C });
+                const cell = ws[cell_address];
+                if (cell && cell.t === 'n' && (cell.v > 1000 || cell.v < -1000)) {
+                    // Format number with thousands separator if > 1000
+                    cell.z = '#,##0'; // Excel format code
+                }
+            }
+        }
+
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, sheetName);
+        XLSX.writeFile(wb, fileName);
+    };
+
     // Export handlers
     const handleExportTable1 = () => {
         const rows = [...reportByBranch.data, reportByBranch.total];
@@ -222,10 +247,7 @@ export const ManagementReports: React.FC<Props> = ({ transactions, lockedKeys })
             'Lãi/Lỗ (VNĐ)': row.profit,
             'Tỷ suất LN (%)': row.margin.toFixed(2)
         }));
-        const ws = XLSX.utils.json_to_sheet(data);
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, 'Thu-Chi theo Chi nhánh');
-        XLSX.writeFile(wb, `Bao_cao_Thu_Chi_Chi_nhanh_${selectedMonth}.xlsx`);
+        exportToExcel(data, `Bao_cao_Thu_Chi_Chi_nhanh_${selectedMonth}.xlsx`, 'Thu-Chi Chi nhánh', [20, 15, 15, 15, 15]);
     };
 
     const handleExportTable2 = () => {
@@ -238,10 +260,7 @@ export const ManagementReports: React.FC<Props> = ({ transactions, lockedKeys })
             'Tỷ suất LN (%)': row.margin.toFixed(2),
             'Ghi chú': row.note
         }));
-        const ws = XLSX.utils.json_to_sheet(data);
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, 'Thu-Chi theo Thị trường');
-        XLSX.writeFile(wb, `Bao_cao_Thu_Chi_Thi_truong_${selectedMonth}.xlsx`);
+        exportToExcel(data, `Bao_cao_Thu_Chi_Thi_truong_${selectedMonth}.xlsx`, 'Thu-Chi Thị trường', [15, 15, 15, 15, 15, 30]);
     };
 
     const handleExportTable3 = () => {
@@ -253,10 +272,7 @@ export const ManagementReports: React.FC<Props> = ({ transactions, lockedKeys })
             'Số dư cuối kỳ (VNĐ)': row.closing,
             'Trạng thái': row.status
         }));
-        const ws = XLSX.utils.json_to_sheet(data);
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, 'Dòng tiền theo Tháng');
-        XLSX.writeFile(wb, `Bao_cao_Dong_tien_${selectedMonth}.xlsx`);
+        exportToExcel(data, `Bao_cao_Dong_tien_${selectedMonth}.xlsx`, 'Dòng tiền', [15, 20, 15, 15, 20, 15]);
     };
 
     const handleExportTable4 = () => {
@@ -273,10 +289,7 @@ export const ManagementReports: React.FC<Props> = ({ transactions, lockedKeys })
             'Chi phí chung (VNĐ)': row.opex,
             'Lợi nhuận (VNĐ)': row.profit
         }));
-        const ws = XLSX.utils.json_to_sheet(data);
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, 'Kết quả kinh doanh');
-        XLSX.writeFile(wb, `Bao_cao_Ket_qua_kinh_doanh_${selectedMonth}.xlsx`);
+        exportToExcel(data, `Bao_cao_Ket_qua_kinh_doanh_${selectedMonth}.xlsx`, 'Kết quả kinh doanh', [5, 15, 20, 15, 15, 10, 15, 15, 15, 15, 15]);
     };
 
     return (

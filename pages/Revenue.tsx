@@ -224,17 +224,43 @@ export const Revenue: React.FC<Props> = ({ transactions, setTransactions, accoun
             onClick={() => {
               const exportData = revenueTransactions.map((t, index) => ({
                 'STT': index + 1,
-                'Ngay': t.date,
-                'Nguon_Thu': t.source,
-                'Chi_Nhanh': t.branch,
-                'Thi_Truong': t.market,
-                'Ma_TK': t.accountCode,
-                'Noi_Dung': t.description,
-                'So_Tien': t.amount,
-                'Hinh_Thuc': t.method
+                'Ngày': t.date,
+                'Nguồn thu': t.source,
+                'Chi nhánh': t.branch,
+                'Thị trường': t.market,
+                'Mã TK': t.accountCode,
+                'Nội dung': t.description,
+                'Số tiền (VNĐ)': t.amount,
+                'Hình thức': t.method
               }));
 
               const ws = XLSX.utils.json_to_sheet(exportData);
+
+              // Set column widths
+              ws['!cols'] = [
+                { wch: 5 },  // STT
+                { wch: 12 }, // Ngày
+                { wch: 15 }, // Nguồn thu
+                { wch: 10 }, // Chi nhánh
+                { wch: 10 }, // Thị trường
+                { wch: 15 }, // Mã TK
+                { wch: 30 }, // Nội dung
+                { wch: 15 }, // Số tiền
+                { wch: 15 }  // Hình thức
+              ];
+
+              // Format numbers
+              const range = XLSX.utils.decode_range(ws['!ref'] || "A1:A1");
+              for (let R = range.s.r; R <= range.e.r; ++R) {
+                for (let C = range.s.c; C <= range.e.c; ++C) {
+                  const cell_address = XLSX.utils.encode_cell({ r: R, c: C });
+                  const cell = ws[cell_address];
+                  if (cell && cell.t === 'n' && (cell.v > 1000 || cell.v < -1000)) {
+                    cell.z = '#,##0';
+                  }
+                }
+              }
+
               const wb = XLSX.utils.book_new();
               XLSX.utils.book_append_sheet(wb, ws, "Doanh_Thu");
               XLSX.writeFile(wb, `Doanh_Thu_${new Date().toISOString().split('T')[0]}.xlsx`);
