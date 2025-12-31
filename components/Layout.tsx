@@ -16,6 +16,7 @@ const Sidebar = ({ isOpen, setIsOpen }: SidebarProps) => {
     { name: 'Quản lý Chi', path: '/cost', icon: <CreditCard size={20} /> },
     { name: 'Sổ quỹ & Dòng tiền', path: '/ledger', icon: <BookOpen size={20} /> },
     { name: 'Báo cáo tài chính quản trị', path: '/management-reports', icon: <BarChart3 size={20} /> },
+    { name: 'Dữ liệu F3', path: '/f3-datasheet', icon: <Database size={20} /> },
   ];
 
   return (
@@ -91,6 +92,7 @@ export const Layout = () => {
     if (path.startsWith('/revenue')) return 'Quản lý Thu';
     if (path.startsWith('/cost')) return 'Quản lý Chi phí';
     if (path.startsWith('/ledger')) return 'Sổ quỹ Thu - Chi & Dòng tiền';
+    if (path.startsWith('/f3-datasheet')) return 'Dữ liệu F3';
 
     return 'Lumi Finance';
   };

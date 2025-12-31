@@ -3,6 +3,7 @@ import { HashRouter, Route, Routes } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { INITIAL_ACCOUNTS, INITIAL_TRANSACTIONS } from './constants';
 import { Cost } from './pages/Cost';
+import { DatasheetF3 } from './pages/DatasheetF3';
 import { Ledger } from './pages/Ledger';
 import { ManagementReports } from './pages/ManagementReports';
 import { MasterData } from './pages/MasterData';
@@ -40,6 +41,10 @@ function App() {
           <Route
             path="management-reports"
             element={<ManagementReports transactions={transactions} lockedKeys={lockedKeys} />}
+          />
+          <Route
+            path="f3-datasheet"
+            element={<DatasheetF3 />}
           />
         </Route>
       </Routes>

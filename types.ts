@@ -62,3 +62,44 @@ export interface AuditLog {
   user: string;
   details: string; // Describe what changed
 }
+
+export interface F3Data {
+  Add: string;
+  CSKH: string;
+  City: string;
+  Ghi_chú: string;
+  Hình_thức_thanh_toán: string;
+  Khu_vực: string;
+  Kế_toán_xác_nhận_thu_tiền_về: string;
+  Kết_quả_Check: string;
+  Lý_do: string;
+  Mã_Tracking: string;
+  Mã_đơn_hàng: string;
+  Mặt_hàng: string;
+  NV_Vận_đơn: string;
+  Name: string;
+  Ngày_lên_đơn: string;
+  Nhân_viên_Marketing: string;
+  Nhân_viên_Sale: string;
+  Phone: string;
+  Phí_ship: number;
+  State: string;
+  Team: string;
+  Thời_gian_cutoff: string;
+  Tiền_Việt_đã_đối_soát: number;
+  Trạng_thái_giao_hàng_NB: string;
+  Trạng_thái_thu_tiền: string;
+  Tổng_tiền_VNĐ: number;
+  Zipcode: string;
+  Đơn_vị_vận_chuyển: string;
+}
+
+export interface BusinessResultRow {
+  id: string;
+  month: string;
+  product: string;
+  market: string;
+  branch: string;
+  cogs: number;
+  overhead: number;
+}

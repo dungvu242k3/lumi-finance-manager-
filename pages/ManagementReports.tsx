@@ -1,7 +1,7 @@
-import { Download } from 'lucide-react';
-import React, { useMemo, useState } from 'react';
+import { Download, Plus, Trash2 } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
 import * as XLSX from 'xlsx';
-import { Branch, Market, Transaction, TransactionType } from '../types';
+import { Branch, BusinessResultRow, F3Data, Market, Transaction, TransactionType } from '../types';
 
 interface Props {
     transactions: Transaction[];
@@ -10,6 +10,7 @@ interface Props {
 
 export const ManagementReports: React.FC<Props> = ({ transactions, lockedKeys }) => {
     const [activeTab, setActiveTab] = useState<'monthly' | 'yearly'>('monthly');
+    const [loading, setLoading] = useState(false);
 
     // Filters
     const [selectedPeriod, setSelectedPeriod] = useState<'month' | 'quarter' | 'year'>('month');
@@ -17,11 +18,118 @@ export const ManagementReports: React.FC<Props> = ({ transactions, lockedKeys })
     const [selectedMarket, setSelectedMarket] = useState<string>('ALL');
     const [selectedMonth, setSelectedMonth] = useState('2025-12');
 
-    // Table 4 specific filters
-    const [selectedProductTable4, setSelectedProductTable4] = useState<string>('ALL');
-    const [selectedMarketTable4, setSelectedMarketTable4] = useState<string>('ALL');
-    const [selectedBranchTable4, setSelectedBranchTable4] = useState<string>('ALL');
+    // Data Sources
+    const [f3Data, setF3Data] = useState<F3Data[]>([]);
+    const [reportRows, setReportRows] = useState<BusinessResultRow[]>([]);
 
+    // Fetch Data
+    useEffect(() => {
+        const fetchF3AndReports = async () => {
+            setLoading(true);
+            try {
+                // 1. Fetch F3
+                const f3Response = await fetch('https://lumi-6dff7-default-rtdb.asia-southeast1.firebasedatabase.app/datasheet/F3.json');
+                const f3Json = await f3Response.json();
+                if (f3Json) {
+                    setF3Data(Object.values(f3Json) as F3Data[]);
+                }
+
+                // 2. Fetch Report Rows
+                const reportResponse = await fetch('https://lumi-6dff7-default-rtdb.asia-southeast1.firebasedatabase.app/reports/business_results.json');
+                const reportJson = await reportResponse.json();
+                if (reportJson) {
+                    // Firebase returns object with IDs keys, convert to array with ID in object
+                    const rows = Object.entries(reportJson).map(([key, val]: [string, any]) => ({
+                        ...val,
+                        id: key
+                    }));
+                    setReportRows(rows);
+                }
+            } catch (error) {
+                console.error("Error loading report data:", error);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchF3AndReports();
+    }, []);
+
+
+    // Save/Update Row to Firebase
+    const saveReportRow = async (row: BusinessResultRow) => {
+        try {
+            const method = row.id.startsWith('temp_') ? 'POST' : 'PUT';
+            const url = row.id.startsWith('temp_')
+                ? 'https://lumi-6dff7-default-rtdb.asia-southeast1.firebasedatabase.app/reports/business_results.json'
+                : `https://lumi-6dff7-default-rtdb.asia-southeast1.firebasedatabase.app/reports/business_results/${row.id}.json`;
+
+            // Remove temporary ID in body
+            const { id, ...body } = row;
+
+            const response = await fetch(url, {
+                method,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+
+            if (row.id.startsWith('temp_')) {
+                const json = await response.json();
+                // Replace temp row with real ID in state
+                setReportRows(prev => prev.map(r => r.id === row.id ? { ...row, id: json.name } : r));
+            }
+
+        } catch (error) {
+            console.error("Error saving row:", error);
+        }
+    };
+
+    const deleteReportRow = async (id: string) => {
+        if (!confirm("Bạn có chắc muốn xóa dòng này?")) return;
+        try {
+            await fetch(`https://lumi-6dff7-default-rtdb.asia-southeast1.firebasedatabase.app/reports/business_results/${id}.json`, {
+                method: 'DELETE'
+            });
+            setReportRows(prev => prev.filter(r => r.id !== id));
+        } catch (error) {
+            console.error("Error deleting row:", error);
+        }
+    };
+
+    const handleRowChange = (id: string, field: keyof BusinessResultRow, value: any) => {
+        setReportRows(prev => prev.map(row => {
+            if (row.id === id) {
+                const updated = { ...row, [field]: value };
+                // Debounce save or save immediately on blur? For simplicity, we save after filtered events or explicit save button. 
+                // To avoid too many writes, we can just update state here and let User click "Save" or auto-save via useEffect.
+                // Let's implement auto-save Effect or just save on Blur for inputs. For Selects, save immediately.
+                if (field !== 'cogs' && field !== 'overhead') {
+                    saveReportRow(updated);
+                }
+                return updated;
+            }
+            return row;
+        }));
+    };
+
+    // Separate handler for saving inputs on blur to avoid spamming API on keystroke
+    const handleInputBlur = (row: BusinessResultRow) => {
+        saveReportRow(row);
+    };
+
+    const addNewRow = () => {
+        const newRow: BusinessResultRow = {
+            id: `temp_${Date.now()}`,
+            month: selectedMonth,
+            product: '',
+            market: '',
+            branch: '',
+            cogs: 0,
+            overhead: 0
+        };
+        setReportRows(prev => [...prev, newRow]);
+        // Don't save to DB yet until they pick something
+    };
 
 
     const formatCurrency = (amount: number) => {
@@ -137,80 +245,53 @@ export const ManagementReports: React.FC<Props> = ({ transactions, lockedKeys })
         return result;
     }, [transactions, selectedMonth, selectedBranch, selectedMarket]);
 
-    // Bảng 4: Báo cáo Kết quả kinh doanh (Mock data structure)
-    const businessResultsReport = useMemo(() => {
-        // This would require product/SKU data which isn't in current Transaction model
-        // For now, we'll aggregate by Account Code + Market + Branch as a proxy
-        const monthTrans = transactions.filter(t =>
-            t.date.startsWith(selectedMonth) &&
-            (selectedBranchTable4 === 'ALL' || t.branch === selectedBranchTable4) &&
-            (selectedMarketTable4 === 'ALL' || t.market === selectedMarketTable4)
-        );
 
-        // Group by AccountCode, Market, Branch
-        const grouped: Record<string, {
-            product: string;
-            market: string;
-            branch: string;
-            quantity: number;
-            revenue: number;
-            revenueWeight: number;
-            cogs: number;
-            opex: number;
-            profit: number;
-        }> = {};
+    // Unique options helpers
+    const f3UniqueProducts = useMemo(() => [...new Set(f3Data.map(i => i.Mặt_hàng).filter(Boolean))].sort(), [f3Data]);
+    const f3UniqueMarkets = useMemo(() => [...new Set(f3Data.map(i => i.Khu_vực).filter(Boolean))].sort(), [f3Data]); // Or from Market Enum
+    const f3UniqueBranches = useMemo(() => [...new Set(f3Data.map(i => i.Team).filter(Boolean))].sort(), [f3Data]);
 
-        monthTrans.forEach(t => {
-            // Filter by selected product
-            if (selectedProductTable4 !== 'ALL' && t.accountCode !== selectedProductTable4) {
-                return;
-            }
 
-            const key = `${t.accountCode}_${t.market}_${t.branch}`;
-            if (!grouped[key]) {
-                grouped[key] = {
-                    product: t.accountCode,
-                    market: t.market,
-                    branch: t.branch,
-                    quantity: 0, // Mock - would need real SKU data
-                    revenue: 0,
-                    revenueWeight: 0,
-                    cogs: 0, // Mock
-                    opex: 0, // Mock
-                    profit: 0
-                };
-            }
+    // Bảng 4: Calculator Logic
+    const businessResultsCalculated = useMemo(() => {
+        // Show rows only for selected Month, to keep list clean, or show all? 
+        // User probably wants to see just the monthly report.
+        const rowsForMonth = reportRows.filter(r => r.month === selectedMonth);
 
-            if (t.type === TransactionType.REVENUE) {
-                grouped[key].revenue += t.amount;
-            } else {
-                // Split expenses between COGS and OPEX (mock logic)
-                grouped[key].cogs += t.amount * 0.6; // Assume 60% is COGS
-                grouped[key].opex += t.amount * 0.4; // Assume 40% is OPEX
-            }
+        const totalRevenueMonth = f3Data
+            .filter(d => d.Ngày_lên_đơn?.startsWith(selectedMonth))
+            .reduce((sum, item) => sum + (item.Tổng_tiền_VNĐ || 0), 0);
+
+        return rowsForMonth.map(row => {
+            // Aggregate F3 data based on row criteria
+            const matchingOrders = f3Data.filter(item => {
+                if (!item.Ngày_lên_đơn?.startsWith(row.month)) return false;
+                if (row.product && item.Mặt_hàng !== row.product) return false;
+
+                // Market logic: F3 'Khu_vực' might be 'US', 'Canada', etc.
+                // Row 'market' might be 'US', 'CAN', etc. need normalization if mismatched.
+                // Assuming user selects from F3 values for now to enable matching.
+                if (row.market && item.Khu_vực !== row.market && item.City !== row.market) return false; // Loose matching
+
+                if (row.branch && item.Team !== row.branch) return false;
+
+                return true;
+            });
+
+            const quantity = matchingOrders.length;
+            const revenue = matchingOrders.reduce((sum, item) => sum + (item.Tổng_tiền_VNĐ || 0), 0);
+            const revenueWeight = totalRevenueMonth > 0 ? (revenue / totalRevenueMonth) * 100 : 0;
+            const profit = revenue - (row.cogs || 0) - (row.overhead || 0);
+
+            return {
+                ...row,
+                quantity,
+                revenue,
+                revenueWeight,
+                profit
+            };
         });
-
-        // Calculate totals and percentages
-        const totalRevenue = Object.values(grouped).reduce((s, g) => s + g.revenue, 0);
-
-        const result = Object.values(grouped).map(g => {
-            g.profit = g.revenue - g.cogs - g.opex;
-            g.revenueWeight = totalRevenue > 0 ? (g.revenue / totalRevenue) * 100 : 0;
-            g.quantity = Math.floor(g.revenue / 250000);
-            return g;
-        }).filter(g => g.revenue > 0);
-
-        return result;
-    }, [transactions, selectedMonth, selectedBranchTable4, selectedMarketTable4, selectedProductTable4]);
-
-    // Get unique products (account codes) for dropdown
-    const uniqueProducts = useMemo(() => {
-        const products = new Set<string>();
-        transactions.forEach(t => {
-            if (t.accountCode) products.add(t.accountCode);
-        });
-        return Array.from(products).sort();
-    }, [transactions]);
+    }, [reportRows, f3Data, selectedMonth]);
 
     // Generic export helper to adjust column widths
     const exportToExcel = (data: any[], fileName: string, sheetName: string, colWidths: number[]) => {
@@ -276,9 +357,9 @@ export const ManagementReports: React.FC<Props> = ({ transactions, lockedKeys })
     };
 
     const handleExportTable4 = () => {
-        const data = businessResultsReport.map((row, index) => ({
+        const data = businessResultsCalculated.map((row, index) => ({
             'STT': index + 1,
-            'Tháng/Năm': selectedMonth,
+            'Tháng/Năm': row.month,
             'Sản phẩm': row.product,
             'Thị trường': row.market,
             'Chi nhánh': row.branch,
@@ -286,7 +367,7 @@ export const ManagementReports: React.FC<Props> = ({ transactions, lockedKeys })
             'Doanh thu (VNĐ)': row.revenue,
             'Tỷ trọng DT (%)': row.revenueWeight.toFixed(2),
             'Giá vốn (VNĐ)': row.cogs,
-            'Chi phí chung (VNĐ)': row.opex,
+            'Chi phí chung (VNĐ)': row.overhead,
             'Lợi nhuận (VNĐ)': row.profit
         }));
         exportToExcel(data, `Bao_cao_Ket_qua_kinh_doanh_${selectedMonth}.xlsx`, 'Kết quả kinh doanh', [5, 15, 20, 15, 15, 10, 15, 15, 15, 15, 15]);
@@ -474,66 +555,29 @@ export const ManagementReports: React.FC<Props> = ({ transactions, lockedKeys })
                         <div className="flex flex-col gap-3 mb-4">
                             <div className="flex justify-between items-center">
                                 <h3 className="font-bold text-slate-700">Bảng 4: Báo cáo Kết quả kinh doanh theo sản phẩm, thị trường, chi nhánh</h3>
-                                <button onClick={handleExportTable4} className="text-blue-600 hover:text-blue-800 text-sm font-medium flex items-center gap-1">
-                                    <Download size={14} /> Xuất Excel
-                                </button>
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={addNewRow}
+                                        className="text-green-600 hover:text-green-800 text-sm font-medium flex items-center gap-1 bg-white px-3 py-1 rounded border border-green-200"
+                                    >
+                                        <Plus size={14} /> Thêm dòng
+                                    </button>
+                                    <button onClick={handleExportTable4} className="text-blue-600 hover:text-blue-800 text-sm font-medium flex items-center gap-1">
+                                        <Download size={14} /> Xuất Excel
+                                    </button>
+                                </div>
                             </div>
 
-                            {/* Filter controls for Table 4 */}
-                            <div className="flex flex-wrap items-center gap-3 bg-white p-3 rounded-lg border border-slate-200">
-
-                                <div className="flex items-center gap-2">
-                                    <span className="text-xs font-semibold text-slate-600">Tháng:</span>
-                                    <input
-                                        type="month"
-                                        value={selectedMonth}
-                                        onChange={(e) => setSelectedMonth(e.target.value)}
-                                        className="border border-slate-300 rounded px-2 py-1.5 text-xs bg-white focus:ring-2 focus:ring-blue-500 outline-none"
-                                    />
-                                </div>
-
-                                <div className="flex items-center gap-2">
-                                    <span className="text-xs font-semibold text-slate-600">Sản phẩm:</span>
-                                    <select
-                                        value={selectedProductTable4}
-                                        onChange={(e) => setSelectedProductTable4(e.target.value)}
-                                        className="border border-slate-300 rounded px-2 py-1.5 text-xs bg-white focus:ring-2 focus:ring-blue-500 outline-none"
-                                    >
-                                        <option value="ALL">Tất cả sản phẩm</option>
-                                        {uniqueProducts.map(p => (
-                                            <option key={p} value={p}>{p}</option>
-                                        ))}
-                                    </select>
-                                </div>
-
-                                <div className="flex items-center gap-2">
-                                    <span className="text-xs font-semibold text-slate-600">Thị trường:</span>
-                                    <select
-                                        value={selectedMarketTable4}
-                                        onChange={(e) => setSelectedMarketTable4(e.target.value)}
-                                        className="border border-slate-300 rounded px-2 py-1.5 text-xs bg-white focus:ring-2 focus:ring-blue-500 outline-none"
-                                    >
-                                        <option value="ALL">Tất cả thị trường</option>
-                                        {Object.values(Market).filter(m => m !== Market.NONE).map(m => (
-                                            <option key={m} value={m}>{m}</option>
-                                        ))}
-                                    </select>
-                                </div>
-
-                                <div className="flex items-center gap-2">
-                                    <span className="text-xs font-semibold text-slate-600">Chi nhánh:</span>
-                                    <select
-                                        value={selectedBranchTable4}
-                                        onChange={(e) => setSelectedBranchTable4(e.target.value)}
-                                        className="border border-slate-300 rounded px-2 py-1.5 text-xs bg-white focus:ring-2 focus:ring-blue-500 outline-none"
-                                    >
-                                        <option value="ALL">Tất cả chi nhánh</option>
-                                        {Object.values(Branch).map(b => (
-                                            <option key={b} value={b}>{b}</option>
-                                        ))}
-                                    </select>
-                                </div>
+                            <div className='flex items-center gap-2 mb-2'>
+                                <span className='text-sm text-slate-600'>Chọn tháng báo cáo:</span>
+                                <input
+                                    type="month"
+                                    value={selectedMonth}
+                                    onChange={(e) => setSelectedMonth(e.target.value)}
+                                    className="border border-slate-300 rounded px-2 py-1 text-sm"
+                                />
                             </div>
+
                         </div>
 
                         <div className="overflow-x-auto">
@@ -541,92 +585,116 @@ export const ManagementReports: React.FC<Props> = ({ transactions, lockedKeys })
                                 <thead className="bg-yellow-50">
                                     <tr>
                                         <th className="px-3 py-3 text-center font-bold text-slate-700 border border-slate-300 text-xs">STT</th>
-                                        <th className="px-3 py-3 text-left font-bold text-slate-700 border border-slate-300 text-xs">Tháng</th>
-                                        <th className="px-3 py-3 text-left font-bold text-slate-700 border border-slate-300 text-xs">Sản phẩm</th>
-                                        <th className="px-3 py-3 text-left font-bold text-slate-700 border border-slate-300 text-xs">Thị trường</th>
-                                        <th className="px-3 py-3 text-left font-bold text-slate-700 border border-slate-300 text-xs">Chi nhánh</th>
+                                        <th className="px-3 py-3 text-center font-bold text-slate-700 border border-slate-300 text-xs w-10">Xóa</th>
+                                        <th className="px-3 py-3 text-left font-bold text-slate-700 border border-slate-300 text-xs min-w-[100px]">Tháng</th>
+                                        <th className="px-3 py-3 text-left font-bold text-slate-700 border border-slate-300 text-xs min-w-[150px]">Sản phẩm</th>
+                                        <th className="px-3 py-3 text-left font-bold text-slate-700 border border-slate-300 text-xs min-w-[100px]">Thị trường</th>
+                                        <th className="px-3 py-3 text-left font-bold text-slate-700 border border-slate-300 text-xs min-w-[100px]">Chi nhánh</th>
                                         <th className="px-3 py-3 text-right font-bold text-slate-700 border border-slate-300 text-xs">Sản lượng</th>
                                         <th className="px-3 py-3 text-right font-bold text-slate-700 border border-slate-300 text-xs">Doanh thu</th>
                                         <th className="px-3 py-3 text-right font-bold text-slate-700 border border-slate-300 text-xs">Tỷ trọng DT</th>
-                                        <th className="px-3 py-3 text-right font-bold text-slate-700 border border-slate-300 text-xs">Giá vốn<br /><span className="text-[9px] font-normal">(Tiền hàng + FFM + Thuê TK + Bay)</span></th>
-                                        <th className="px-3 py-3 text-right font-bold text-slate-700 border border-slate-300 text-xs">Chi phí chung<br /><span className="text-[9px] font-normal">(Ads + lương, BH + Thuế + Test + khác)theo tỷ trọng doanh thu</span></th>
+                                        <th className="px-3 py-3 text-right font-bold text-slate-700 border border-slate-300 text-xs min-w-[100px]">Giá vốn</th>
+                                        <th className="px-3 py-3 text-right font-bold text-slate-700 border border-slate-300 text-xs min-w-[100px]">Chi phí chung</th>
                                         <th className="px-3 py-3 text-right font-bold text-slate-700 border border-slate-300 text-xs">Lãi / Lỗ</th>
                                     </tr>
                                 </thead>
                                 <tbody className="bg-white">
-                                    {businessResultsReport.map((row, idx) => (
-                                        <tr key={idx} className="hover:bg-slate-50">
+                                    {businessResultsCalculated.map((row, idx) => (
+                                        <tr key={row.id} className="hover:bg-slate-50 group">
                                             <td className="px-3 py-3 text-center border border-slate-200 text-xs">{idx + 1}</td>
-                                            <td className="px-3 py-3 text-slate-600 border border-slate-200 text-xs">{selectedMonth}</td>
-                                            <td className="px-3 py-3 font-medium text-slate-700 border border-slate-200 text-xs">{row.product}</td>
-                                            <td className="px-3 py-3 text-slate-600 border border-slate-200 text-xs">{row.market}</td>
-                                            <td className="px-3 py-3 text-slate-600 border border-slate-200 text-xs">{row.branch}</td>
-                                            <td className="px-3 py-3 text-right text-slate-600 border border-slate-200 text-xs">{row.quantity.toLocaleString()}</td>
-                                            <td className="px-3 py-3 text-right text-blue-600 border border-slate-200 text-xs">{formatCurrency(row.revenue)}</td>
-                                            <td className="px-3 py-3 text-right text-slate-500 border border-slate-200 text-xs">{row.revenueWeight.toFixed(1)}%</td>
-                                            <td className="px-3 py-3 text-right text-red-600 border border-slate-200 text-xs">{formatCurrency(row.cogs)}</td>
-                                            <td className="px-3 py-3 text-right text-orange-600 border border-slate-200 text-xs">{formatCurrency(row.opex)}</td>
-                                            <td className={`px-3 py-3 text-right font-bold border border-slate-200 text-xs ${row.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                            <td className="px-3 py-3 text-center border border-slate-200 text-xs">
+                                                <button onClick={() => deleteReportRow(row.id)} className="text-red-400 hover:text-red-600">
+                                                    <Trash2 size={14} />
+                                                </button>
+                                            </td>
+                                            <td className="px-3 py-3 border border-slate-200">
+                                                <input
+                                                    type="month"
+                                                    value={row.month}
+                                                    onChange={(e) => handleRowChange(row.id, 'month', e.target.value)}
+                                                    className="w-full text-xs border-none bg-transparent focus:ring-0 p-0"
+                                                />
+                                            </td>
+                                            <td className="px-3 py-3 border border-slate-200">
+                                                <select
+                                                    value={row.product}
+                                                    onChange={(e) => handleRowChange(row.id, 'product', e.target.value)}
+                                                    className="w-full text-xs border-none bg-transparent focus:ring-0 p-0"
+                                                >
+                                                    <option value="">Chọn SP</option>
+                                                    {f3UniqueProducts.map(p => (
+                                                        <option key={p} value={p}>{p}</option>
+                                                    ))}
+                                                </select>
+                                            </td>
+                                            <td className="px-3 py-3 border border-slate-200">
+                                                <select
+                                                    value={row.market}
+                                                    onChange={(e) => handleRowChange(row.id, 'market', e.target.value)}
+                                                    className="w-full text-xs border-none bg-transparent focus:ring-0 p-0"
+                                                >
+                                                    <option value="">Chọn TT</option>
+                                                    {f3UniqueMarkets.map(p => (
+                                                        <option key={p} value={p}>{p}</option>
+                                                    ))}
+                                                </select>
+                                            </td>
+                                            <td className="px-3 py-3 border border-slate-200">
+                                                <select
+                                                    value={row.branch}
+                                                    onChange={(e) => handleRowChange(row.id, 'branch', e.target.value)}
+                                                    className="w-full text-xs border-none bg-transparent focus:ring-0 p-0"
+                                                >
+                                                    <option value="">Chọn CN</option>
+                                                    {f3UniqueBranches.map(p => (
+                                                        <option key={p} value={p}>{p}</option>
+                                                    ))}
+                                                </select>
+                                            </td>
+                                            <td className="px-3 py-3 text-right text-slate-600 border border-slate-200 text-xs bg-slate-50">{row.quantity.toLocaleString()}</td>
+                                            <td className="px-3 py-3 text-right text-blue-600 border border-slate-200 text-xs bg-slate-50">{formatCurrency(row.revenue)}</td>
+                                            <td className="px-3 py-3 text-right text-slate-500 border border-slate-200 text-xs bg-slate-50">{row.revenueWeight.toFixed(1)}%</td>
+                                            <td className="px-3 py-3 border border-slate-200">
+                                                <input
+                                                    type="number"
+                                                    value={row.cogs}
+                                                    onChange={(e) => handleRowChange(row.id, 'cogs', Number(e.target.value))}
+                                                    onBlur={() => handleInputBlur(row)}
+                                                    className="w-full text-right text-xs border border-slate-200 rounded px-1 py-0.5 focus:border-blue-500"
+                                                    placeholder="0"
+                                                />
+                                            </td>
+                                            <td className="px-3 py-3 border border-slate-200">
+                                                <input
+                                                    type="number"
+                                                    value={row.overhead}
+                                                    onChange={(e) => handleRowChange(row.id, 'overhead', Number(e.target.value))}
+                                                    onBlur={() => handleInputBlur(row)}
+                                                    className="w-full text-right text-xs border border-slate-200 rounded px-1 py-0.5 focus:border-blue-500"
+                                                    placeholder="0"
+                                                />
+                                            </td>
+                                            <td className={`px-3 py-3 text-right font-bold border border-slate-200 text-xs bg-slate-50 ${row.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                                                 {formatCurrency(row.profit)}
                                             </td>
                                         </tr>
                                     ))}
+                                    {businessResultsCalculated.length === 0 && (
+                                        <tr>
+                                            <td colSpan={12} className="text-center py-8 text-slate-400 italic">
+                                                Chưa có dữ liệu báo cáo cho tháng {selectedMonth}. Nhấn "Thêm dòng" để bắt đầu.
+                                            </td>
+                                        </tr>
+                                    )}
                                 </tbody>
                             </table>
                         </div>
                         <p className="text-xs text-slate-500 italic mt-2">
-                            <strong>Lưu ý:</strong> Sản lượng, Giá vốn và Chi phí chung được ước tính từ dữ liệu giao dịch.
-                            Chi phí chung được <strong className="text-blue-600">phân bổ theo tỷ trọng doanh thu</strong> của từng sản phẩm.
-                            Để có báo cáo chính xác hơn, cần bổ sung thông tin Sản phẩm/SKU và phân loại chi phí chi tiết vào hệ thống.
+                            <strong>Hướng dẫn:</strong> Chọn Sản phẩm, Thị trường, Chi nhánh để hệ thống tự lấy Doanh thu/Sản lượng từ F3. Nhập Giá vốn & Chi phí chung để tính Lãi/Lỗ. Dữ liệu tự động lưu.
                         </p>
                     </div>
 
-                    {/* Bảng 4.1: Báo cáo nhanh/tạm tính */}
-                    <div className="bg-orange-50 p-4 rounded-lg border-2 border-orange-300 mt-6">
-                        <h3 className="font-bold text-orange-900 mb-2">Bảng 4.1: Báo cáo nhanh/tạm tính</h3>
-                        <p className="text-xs text-orange-700 mb-3">Công thức: Sản lượng = Đơn chốt × 90% | DT = Doanh số chốt × 90% × 86%</p>
 
-                        <div className="bg-white p-3 rounded mb-3 flex gap-4">
-                            <div className="flex items-center gap-2">
-                                <label className="text-xs font-semibold">Số đơn chốt:</label>
-                                <input type="number" className="border rounded px-2 py-1 text-sm w-28" placeholder="0" />
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <label className="text-xs font-semibold">Doanh số chốt:</label>
-                                <input type="number" className="border rounded px-2 py-1 text-sm w-40" placeholder="0" />
-                            </div>
-                        </div>
-
-                        <div className="bg-white p-3 rounded grid grid-cols-4 gap-3">
-                            <div className="bg-orange-50 p-2 rounded text-center">
-                                <p className="text-xs text-slate-600">Sản lượng UL</p>
-                                <p className="text-lg font-bold">--- đơn</p>
-                            </div>
-                            <div className="bg-orange-50 p-2 rounded text-center">
-                                <p className="text-xs text-slate-600">DT ước lượng</p>
-                                <p className="text-lg font-bold text-green-600">--- ₫</p>
-                            </div>
-                            <div className="bg-orange-50 p-2 rounded text-center">
-                                <p className="text-xs text-slate-600">Tỷ lệ</p>
-                                <p className="text-lg font-bold text-blue-600">77.4%</p>
-                            </div>
-                            <div className="bg-orange-50 p-2 rounded text-center">
-                                <p className="text-xs text-slate-600">Trạng thái</p>
-                                <p className="text-sm font-semibold text-orange-600">Tạm tính</p>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Bảng 4.2: Báo cáo chính thức */}
-                    <div className="bg-green-50 p-4 rounded-lg border-2 border-green-300 mt-6">
-                        <h3 className="font-bold text-green-900 mb-2">Bảng 4.2: Báo cáo chính thức</h3>
-                        <p className="text-xs text-green-700 mb-3">Sau ngày 12 tháng n+2 - Accrual accounting</p>
-
-                        <div className="bg-white p-4 rounded text-center">
-                            <p className="text-sm text-slate-500">📅 Báo cáo sẽ khả dụng sau ngày 12 tháng n+2</p>
-                            <p className="text-xs text-slate-400 mt-2">Dữ liệu thực tế - Chi phí match với doanh thu</p>
-                        </div>
-                    </div>
                 </div>
             )}
 
