@@ -1,52 +1,51 @@
 import { Download, RefreshCw, Save, Search } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 import * as XLSX from 'xlsx';
+import { ExchangeRates, F3Data } from '../types';
 
-interface ExchangeRates {
-    US: number;
-    CAD: number;
-    AUD: number;
-    JPY: number;
-    KRW: number;
+interface F3DataEnhanced extends F3Data {
+    _searchStr?: string;
+    _timestamp?: number;
 }
 
-interface F3Data {
-    Add: string;
-    CSKH: string;
-    City: string;
-    Ghi_chú: string;
-    Hình_thức_thanh_toán: string;
-    Khu_vực: string;
-    Kế_toán_xác_nhận_thu_tiền_về: string;
-    Kết_quả_Check: string;
-    Lý_do: string;
-    Mã_Tracking: string;
-    Mã_đơn_hàng: string;
-    Mặt_hàng: string;
-    NV_Vận_đơn: string;
-    Name: string;
-    Ngày_lên_đơn: string;
-    Nhân_viên_Marketing: string;
-    Nhân_viên_Sale: string;
-    Phone: string;
-    Phí_ship: number;
-    State: string;
-    Team: string;
-    Thời_gian_cutoff: string;
-    Tiền_Việt_đã_đối_soát: number;
-    Trạng_thái_giao_hàng_NB: string;
-    Trạng_thái_thu_tiền: string;
-    Tổng_tiền_VNĐ: number;
-    Zipcode: string;
-    Đơn_vị_vận_chuyển: string;
+// Hook for debouncing value
+function useDebounce<T>(value: T, delay: number): T {
+    const [debouncedValue, setDebouncedValue] = useState(value);
+    useEffect(() => {
+        const handler = setTimeout(() => {
+            setDebouncedValue(value);
+        }, delay);
+        return () => {
+            clearTimeout(handler);
+        };
+    }, [value, delay]);
+    return debouncedValue;
 }
+
+const normalizeString = (str: string) => {
+    return str ? str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase() : "";
+};
 
 export const DatasheetF3: React.FC = () => {
-    const [data, setData] = useState<F3Data[]>([]);
+    const [data, setData] = useState<F3DataEnhanced[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
+    const debouncedSearchTerm = useDebounce(searchTerm, 300);
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage] = useState(50);
+
+    // Helper to process raw data into enhanced data
+    const processRawData = (rawData: F3Data[]): F3DataEnhanced[] => {
+        return rawData.map(item => ({
+            ...item,
+            _timestamp: item.Ngày_lên_đơn ? new Date(item.Ngày_lên_đơn).getTime() : 0,
+            _searchStr: normalizeString(`
+                ${item.Mã_đơn_hàng || ""} ${item.Name || ""} ${item.Phone || ""}
+                ${item.Add || ""} ${item.City || ""} ${item.State || ""}
+                ${item.Mặt_hàng || ""} ${item.Nhân_viên_Sale || ""}
+            `)
+        }));
+    };
 
     // Exchange Rates State
     const [exchangeRates, setExchangeRates] = useState<ExchangeRates>({
@@ -57,31 +56,72 @@ export const DatasheetF3: React.FC = () => {
         KRW: 17.9
     });
     const [isSavingRates, setIsSavingRates] = useState(false);
+    const [isBackgroundUpdating, setIsBackgroundUpdating] = useState(false);
 
-    const fetchData = async () => {
-        setLoading(true);
-        try {
-            // 1. Fetch F3 Data
-            const response = await fetch('https://lumi-6dff7-default-rtdb.asia-southeast1.firebasedatabase.app/datasheet/F3.json');
-            const jsonData = await response.json();
+    const fetchData = async (useCache = true) => {
+        // Try to load from cache first
+        if (useCache) {
+            const cachedData = sessionStorage.getItem('f3_data_cache');
+            const cachedRates = sessionStorage.getItem('exchange_rates_cache');
 
-            if (!jsonData) {
-                setData([]);
+            if (cachedData && cachedRates) {
+                // If using old cache format (without _searchStr), re-process might be safer
+                // But for now assume cache is fresh or user will refresh.
+                // We'll trust the process if it has _searchStr, otherwise re-process.
+                const parsedData = JSON.parse(cachedData);
+                if (parsedData.length > 0 && !parsedData[0]._searchStr) {
+                    // Old cache detected, re-fetch or re-process
+                    setLoading(true);
+                } else {
+                    setData(parsedData);
+                    setExchangeRates(JSON.parse(cachedRates));
+                    setLoading(false);
+                    setIsBackgroundUpdating(true); // Indicate we are checking for updates
+                }
             } else {
-                const dataArray = Object.values(jsonData) as F3Data[];
-                setData(dataArray);
+                setLoading(true); // No cache, show full loader
+            }
+        } else {
+            setLoading(true); // Explicit refresh
+        }
+
+        try {
+            // Fetch both in parallel
+            const [f3Res, ratesRes] = await Promise.all([
+                fetch('https://lumi-6dff7-default-rtdb.asia-southeast1.firebasedatabase.app/datasheet/F3.json'),
+                fetch('https://lumi-6dff7-default-rtdb.asia-southeast1.firebasedatabase.app/settings/exchange_rates.json')
+            ]);
+
+            const [f3Json, ratesJson] = await Promise.all([
+                f3Res.json(),
+                ratesRes.json()
+            ]);
+
+            // Process F3 Data
+            if (f3Json) {
+                const rawData = Object.values(f3Json) as F3Data[];
+                const enhancedData = processRawData(rawData);
+                // Sort by default (Date desc) so initial render is correct
+                enhancedData.sort((a, b) => (b._timestamp || 0) - (a._timestamp || 0));
+
+                setData(enhancedData);
+                sessionStorage.setItem('f3_data_cache_enhanced', JSON.stringify(enhancedData));
+            } else {
+                setData([]);
+                sessionStorage.removeItem('f3_data_cache_enhanced');
             }
 
-            // 2. Fetch Exchange Rates
-            const ratesResponse = await fetch('https://lumi-6dff7-default-rtdb.asia-southeast1.firebasedatabase.app/settings/exchange_rates.json');
-            const ratesJson = await ratesResponse.json();
+            // Process Rates
             if (ratesJson) {
                 setExchangeRates(ratesJson);
+                sessionStorage.setItem('exchange_rates_cache', JSON.stringify(ratesJson));
             }
+
         } catch (error) {
             console.error('Error fetching data:', error);
         } finally {
             setLoading(false);
+            setIsBackgroundUpdating(false);
         }
     };
 
@@ -93,6 +133,8 @@ export const DatasheetF3: React.FC = () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(exchangeRates)
             });
+            // Update cache after save
+            sessionStorage.setItem('exchange_rates_cache', JSON.stringify(exchangeRates));
             alert('Đã lưu tỷ giá thành công!');
         } catch (error) {
             console.error('Error saving rates:', error);
@@ -111,8 +153,12 @@ export const DatasheetF3: React.FC = () => {
     };
 
     useEffect(() => {
-        fetchData();
+        fetchData(true); // Load with cache strategy on mount
     }, []);
+
+    const handleRefresh = () => {
+        fetchData(false); // Force hard refresh
+    };
 
     const formatCurrency = (amount: number) => {
         return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 }).format(amount);
@@ -124,38 +170,23 @@ export const DatasheetF3: React.FC = () => {
 
     // 1. Optimize Filter & Sort with useMemo
     const processedData = React.useMemo(() => {
-        let result = [...data];
-
-        // Filter
-        if (searchTerm) {
-            // Split search query into individual words (tokens)
-            const searchTokens = normalizeString(searchTerm).split(/\s+/).filter(t => t.length > 0);
-
-            result = result.filter(item => {
-                // Combine all searchable fields into one normalized string
-                const searchableText = normalizeString(`
-                    ${item?.Mã_đơn_hàng || ""}
-                    ${item?.Name || ""}
-                    ${item?.Phone || ""}
-                    ${item?.Add || ""} ${item?.City || ""} ${item?.State || ""}
-                    ${item?.Mặt_hàng || ""}
-                `);
-
-                // Check if ALL tokens are present in the searchable text
-                // "Flexible in all cases": "Tung Hanoi" finds "Nguyen Van Tung" in "Hanoi"
-                return searchTokens.every(token => searchableText.includes(token));
-            });
+        // If no search, return data directly (already sorted by default in fetch)
+        // This is a HUGE optimization because it skips the entire filter loop
+        if (!debouncedSearchTerm) {
+            return data;
         }
 
-        // Sort (Date Descending)
-        result.sort((a, b) => {
-            const dateA = a.Ngày_lên_đơn ? new Date(a.Ngày_lên_đơn).getTime() : 0;
-            const dateB = b.Ngày_lên_đơn ? new Date(b.Ngày_lên_đơn).getTime() : 0;
-            return dateB - dateA;
-        });
+        const normalizedSearch = normalizeString(debouncedSearchTerm);
+        // Pre-tokenize search term ONCE
+        const searchTokens = normalizedSearch.split(/\s+/).filter(t => t.length > 0);
 
-        return result;
-    }, [data, searchTerm]);
+        // O(N) scan but with simple string includes against pre-calc string
+        return data.filter(item => {
+            if (!item._searchStr) return false;
+            // Check if ALL tokens are present in the searchable text
+            return searchTokens.every(token => item._searchStr!.includes(token));
+        });
+    }, [data, debouncedSearchTerm]);
 
     // 2. Pagination Logic
     const totalPages = Math.ceil(processedData.length / itemsPerPage);
@@ -168,7 +199,7 @@ export const DatasheetF3: React.FC = () => {
     // Reset to page 1 when search changes
     useEffect(() => {
         setCurrentPage(1);
-    }, [searchTerm]);
+    }, [debouncedSearchTerm]);
 
     const handleExport = () => {
         // Export ALL filtered data, not just current page
@@ -251,7 +282,7 @@ export const DatasheetF3: React.FC = () => {
                     </div>
                     <div className="flex gap-2">
                         <button
-                            onClick={fetchData}
+                            onClick={handleRefresh}
                             className="flex items-center gap-2 px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors text-sm font-medium"
                         >
                             <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> Làm mới

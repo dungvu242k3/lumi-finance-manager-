@@ -1,7 +1,7 @@
-import { Download, Plus, Trash2 } from 'lucide-react';
+import { Download, Plus, Save, Trash2 } from 'lucide-react';
 import React, { useEffect, useMemo, useState } from 'react';
 import * as XLSX from 'xlsx';
-import { Branch, BusinessResultRow, F3Data, Market, Transaction, TransactionType } from '../types';
+import { Branch, BusinessResultRow, ExchangeRates, F3Data, Market, Transaction, TransactionType } from '../types';
 
 interface Props {
     transactions: Transaction[];
@@ -21,33 +21,76 @@ export const ManagementReports: React.FC<Props> = ({ transactions, lockedKeys })
     // Data Sources
     const [f3Data, setF3Data] = useState<F3Data[]>([]);
     const [reportRows, setReportRows] = useState<BusinessResultRow[]>([]);
+    const [exchangeRates, setExchangeRates] = useState<ExchangeRates>({
+        US: 26077,
+        CAD: 18884,
+        AUD: 17315,
+        JPY: 168,
+        KRW: 17.9
+    });
+    const [isSavingRates, setIsSavingRates] = useState(false);
+    const [isGlobalLoading, setIsGlobalLoading] = useState(true); // Initial load
 
     // Fetch Data
     useEffect(() => {
         const fetchF3AndReports = async () => {
-            setLoading(true);
+            // 1. Try Cache First (FAST LOAD)
+            const cachedF3 = sessionStorage.getItem('f3_data_cache_enhanced') || sessionStorage.getItem('f3_data_cache');
+            const cachedRates = sessionStorage.getItem('exchange_rates_cache');
+
+            if (cachedF3 && cachedRates) {
+                setF3Data(JSON.parse(cachedF3));
+                setExchangeRates(JSON.parse(cachedRates));
+                setIsGlobalLoading(false); // Show UI immediately
+            } else {
+                setIsGlobalLoading(true);
+            }
+
             try {
-                // 1. Fetch F3
-                const f3Response = await fetch('https://lumi-6dff7-default-rtdb.asia-southeast1.firebasedatabase.app/datasheet/F3.json');
-                const f3Json = await f3Response.json();
+                // 2. Parallel Fetch (Background or Initial)
+                console.log("Fetching fresh data for Reports...");
+                const [f3Res, reportRes, ratesRes] = await Promise.all([
+                    fetch('https://lumi-6dff7-default-rtdb.asia-southeast1.firebasedatabase.app/datasheet/F3.json'),
+                    fetch('https://lumi-6dff7-default-rtdb.asia-southeast1.firebasedatabase.app/reports/business_results.json'),
+                    fetch('https://lumi-6dff7-default-rtdb.asia-southeast1.firebasedatabase.app/settings/exchange_rates.json')
+                ]);
+
+                const [f3Json, reportJson, ratesJson] = await Promise.all([
+                    f3Res.json(),
+                    reportRes.json(),
+                    ratesRes.json()
+                ]);
+
+                // Update F3 Data
                 if (f3Json) {
-                    setF3Data(Object.values(f3Json) as F3Data[]);
+                    const data = Object.values(f3Json) as F3Data[];
+                    setF3Data(data);
+                    // We don't necessarily overwrite the 'enhanced' cache here if we don't have the enhanced fields calculated.
+                    // But for reports, raw data is fine. If DatasheetF3 hasn't run, we just cache raw to 'f3_data_cache'.
+                    sessionStorage.setItem('f3_data_cache', JSON.stringify(data));
                 }
 
-                // 2. Fetch Report Rows
-                const reportResponse = await fetch('https://lumi-6dff7-default-rtdb.asia-southeast1.firebasedatabase.app/reports/business_results.json');
-                const reportJson = await reportResponse.json();
+                // Update Report Rows
                 if (reportJson) {
-                    // Firebase returns object with IDs keys, convert to array with ID in object
                     const rows = Object.entries(reportJson).map(([key, val]: [string, any]) => ({
                         ...val,
                         id: key
                     }));
                     setReportRows(rows);
+                } else {
+                    setReportRows([]);
                 }
+
+                // Update Rates
+                if (ratesJson) {
+                    setExchangeRates(ratesJson);
+                    sessionStorage.setItem('exchange_rates_cache', JSON.stringify(ratesJson));
+                }
+
             } catch (error) {
                 console.error("Error loading report data:", error);
             } finally {
+                setIsGlobalLoading(false);
                 setLoading(false);
             }
         };
@@ -55,6 +98,32 @@ export const ManagementReports: React.FC<Props> = ({ transactions, lockedKeys })
         fetchF3AndReports();
     }, []);
 
+
+    // Save/Update Row to Firebase
+    const saveExchangeRates = async () => {
+        setIsSavingRates(true);
+        try {
+            await fetch('https://lumi-6dff7-default-rtdb.asia-southeast1.firebasedatabase.app/settings/exchange_rates.json', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(exchangeRates)
+            });
+            alert('Đã lưu tỷ giá thành công!');
+        } catch (error) {
+            console.error('Error saving rates:', error);
+            alert('Lỗi khi lưu tỷ giá');
+        } finally {
+            setIsSavingRates(false);
+        }
+    };
+
+    const handleRateChange = (currency: keyof ExchangeRates, value: string) => {
+        const numValue = parseFloat(value);
+        setExchangeRates(prev => ({
+            ...prev,
+            [currency]: isNaN(numValue) ? 0 : numValue
+        }));
+    };
 
     // Save/Update Row to Firebase
     const saveReportRow = async (row: BusinessResultRow) => {
@@ -263,6 +332,18 @@ export const ManagementReports: React.FC<Props> = ({ transactions, lockedKeys })
             .reduce((sum, item) => sum + (item.Tổng_tiền_VNĐ || 0), 0);
 
         return rowsForMonth.map(row => {
+            // New logic: STRICT mode. Must select ALL 3 criteria (Product, Market, Branch) to see data.
+            // If any field is missing, return 0.
+            if (!row.product || !row.market || !row.branch) {
+                return {
+                    ...row,
+                    quantity: 0,
+                    revenue: 0,
+                    revenueWeight: 0,
+                    profit: -(row.cogs || 0) - (row.overhead || 0)
+                };
+            }
+
             // Aggregate F3 data based on row criteria
             const matchingOrders = f3Data.filter(item => {
                 if (!item.Ngày_lên_đơn?.startsWith(row.month)) return false;
@@ -376,12 +457,76 @@ export const ManagementReports: React.FC<Props> = ({ transactions, lockedKeys })
     return (
         <div className="space-y-6">
             {/* Header & Filters */}
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                <div>
-                    <h2 className="text-xl font-bold text-slate-800">Báo cáo tài chính quản trị</h2>
-                    <p className="text-sm text-slate-500 mt-1">
-                        <strong className="text-red-600">Chỉ xem</strong> - Dữ liệu tự động từ Thu/Chi & Sổ quỹ
-                    </p>
+            <div className="flex flex-col md:flex-row gap-6">
+                {/* Exchange Rate Widget */}
+                <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 w-full md:w-auto shrink-0">
+                    <div className="flex justify-between items-center mb-3">
+                        <h3 className="font-bold text-slate-700 text-sm">Bảng tỷ giá (VNĐ)</h3>
+                        <button
+                            onClick={saveExchangeRates}
+                            disabled={isSavingRates}
+                            className="text-blue-600 hover:text-blue-800 disabled:opacity-50"
+                            title="Lưu tỷ giá"
+                        >
+                            <Save size={16} />
+                        </button>
+                    </div>
+                    <div className="grid grid-cols-5 gap-2 text-xs">
+                        <div className="flex flex-col gap-1">
+                            <label className="font-semibold text-slate-500 text-center">US</label>
+                            <input
+                                type="number"
+                                value={exchangeRates.US}
+                                onChange={(e) => handleRateChange('US', e.target.value)}
+                                className="border border-slate-300 rounded px-1 py-1 text-center w-16 focus:border-blue-500 outline-none"
+                            />
+                        </div>
+                        <div className="flex flex-col gap-1">
+                            <label className="font-semibold text-slate-500 text-center">CAD</label>
+                            <input
+                                type="number"
+                                value={exchangeRates.CAD}
+                                onChange={(e) => handleRateChange('CAD', e.target.value)}
+                                className="border border-slate-300 rounded px-1 py-1 text-center w-16 focus:border-blue-500 outline-none"
+                            />
+                        </div>
+                        <div className="flex flex-col gap-1">
+                            <label className="font-semibold text-slate-500 text-center">AUS</label>
+                            <input
+                                type="number"
+                                value={exchangeRates.AUD}
+                                onChange={(e) => handleRateChange('AUD', e.target.value)}
+                                className="border border-slate-300 rounded px-1 py-1 text-center w-16 focus:border-blue-500 outline-none"
+                            />
+                        </div>
+                        <div className="flex flex-col gap-1">
+                            <label className="font-semibold text-slate-500 text-center">Nhật</label>
+                            <input
+                                type="number"
+                                value={exchangeRates.JPY}
+                                onChange={(e) => handleRateChange('JPY', e.target.value)}
+                                className="border border-slate-300 rounded px-1 py-1 text-center w-16 focus:border-blue-500 outline-none"
+                            />
+                        </div>
+                        <div className="flex flex-col gap-1">
+                            <label className="font-semibold text-slate-500 text-center">Hàn</label>
+                            <input
+                                type="number"
+                                value={exchangeRates.KRW}
+                                onChange={(e) => handleRateChange('KRW', e.target.value)}
+                                className="border border-slate-300 rounded px-1 py-1 text-center w-16 focus:border-blue-500 outline-none"
+                            />
+                        </div>
+                    </div>
+                </div>
+
+                <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex-1 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                    <div>
+                        <h2 className="text-xl font-bold text-slate-800">Báo cáo tài chính quản trị</h2>
+                        <p className="text-sm text-slate-500 mt-1">
+                            <strong className="text-red-600">Chỉ xem</strong> - Dữ liệu tự động từ Thu/Chi & Sổ quỹ
+                        </p>
+                    </div>
                 </div>
             </div>
 

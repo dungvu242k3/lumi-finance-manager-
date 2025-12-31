@@ -103,3 +103,11 @@ export interface BusinessResultRow {
   cogs: number;
   overhead: number;
 }
+
+export interface ExchangeRates {
+  US: number;
+  CAD: number;
+  AUD: number;
+  JPY: number;
+  KRW: number;
+}
