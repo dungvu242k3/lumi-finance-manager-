@@ -64,8 +64,6 @@ export interface AuditLog {
 }
 
 export interface F3Data {
-  Add: string;
-  CSKH: string;
   City: string;
   Ghi_chú: string;
   Hình_thức_thanh_toán: string;
@@ -80,12 +78,14 @@ export interface F3Data {
   Name: string;
   Ngày_lên_đơn: string;
   Nhân_viên_Marketing: string;
-  Nhân_viên_Sale: string;
-  Phone: string;
+  Phí_Chung: number;
+  Phí_bay: number;
   Phí_ship: number;
   State: string;
   Team: string;
+  Thuê_TK: number;
   Thời_gian_cutoff: string;
+  Tiền_Hàng: number;
   Tiền_Việt_đã_đối_soát: number;
   Trạng_thái_giao_hàng_NB: string;
   Trạng_thái_thu_tiền: string;

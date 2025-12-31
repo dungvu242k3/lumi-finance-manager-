@@ -327,9 +327,11 @@ export const ManagementReports: React.FC<Props> = ({ transactions, lockedKeys })
         // User probably wants to see just the monthly report.
         const rowsForMonth = reportRows.filter(r => r.month === selectedMonth);
 
-        const totalRevenueMonth = f3Data
+        const totalRevenueMonthRaw = f3Data
             .filter(d => d.Ngày_lên_đơn?.startsWith(selectedMonth))
             .reduce((sum, item) => sum + (item.Tổng_tiền_VNĐ || 0), 0);
+        // Adjusted Total Revenue for weight calculation: raw * 0.9 * 0.86
+        const totalRevenueMonth = totalRevenueMonthRaw * 0.9 * 0.86;
 
         return rowsForMonth.map(row => {
             // New logic: STRICT mode. Must select ALL 3 criteria (Product, Market, Branch) to see data.
@@ -359,16 +361,47 @@ export const ManagementReports: React.FC<Props> = ({ transactions, lockedKeys })
                 return true;
             });
 
-            const quantity = matchingOrders.length;
-            const revenue = matchingOrders.reduce((sum, item) => sum + (item.Tổng_tiền_VNĐ || 0), 0);
+            const totalOrders = matchingOrders.length;
+            // Sản lượng = Số đơn chốt * 90% (tỷ lệ đi hàng)
+            const quantity = Math.round(totalOrders * 0.9);
+
+            // Calculate Totals from F3
+            let totalSales = 0;
+            let totalCogs = 0;     // Tiền Hàng
+            let totalOverhead = 0; // Phí Chung + Phí Bay + Thuê TK + Ship
+
+            matchingOrders.forEach(item => {
+                totalSales += (item.Tổng_tiền_VNĐ || 0);
+                totalCogs += (item.Tiền_Hàng || 0);
+                // Overhead sums
+                totalOverhead += (item.Phí_Chung || 0) + (item.Phí_bay || 0) + (item.Thuê_TK || 0) + (item.Phí_ship || 0);
+            });
+
+            // DT = Doanh số chốt * 90% (tỷ lệ đi hàng) * 86% (tỷ lệ thu tiền)
+            const revenue = totalSales * 0.9 * 0.86;
+
             const revenueWeight = totalRevenueMonth > 0 ? (revenue / totalRevenueMonth) * 100 : 0;
-            const profit = revenue - (row.cogs || 0) - (row.overhead || 0);
+
+            // Profit = Revenue - Calculated COGS - Calculated Overhead
+            // Note: If user wants these to be strictly from F3, we override the 'row.cogs' and 'row.overhead'.
+            // However, the UI has inputs for them. 
+            // If we simply return calculated values here, the inputs in the table (which bind to row.cogs/overhead via 'businessResultsCalculated' map) 
+            // might look confusing if they are editable but constantly overwritten by this calc?
+            // Actually, the table inputs use `value={row.cogs}` where row comes from this calculated array.
+            // So they will display the calculated value. 
+            // User asked for "nhảy số chuẩn chỉ" (automated), so we use calculated values. 
+
+            const cogs = totalCogs;
+            const overhead = totalOverhead;
+            const profit = revenue - cogs - overhead;
 
             return {
                 ...row,
                 quantity,
                 revenue,
                 revenueWeight,
+                cogs,      // Override manual with calculated
+                overhead,  // Override manual with calculated
                 profit
             };
         });

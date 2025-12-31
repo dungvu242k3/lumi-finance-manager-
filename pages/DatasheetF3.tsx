@@ -40,9 +40,9 @@ export const DatasheetF3: React.FC = () => {
             ...item,
             _timestamp: item.Ngày_lên_đơn ? new Date(item.Ngày_lên_đơn).getTime() : 0,
             _searchStr: normalizeString(`
-                ${item.Mã_đơn_hàng || ""} ${item.Name || ""} ${item.Phone || ""}
-                ${item.Add || ""} ${item.City || ""} ${item.State || ""}
-                ${item.Mặt_hàng || ""} ${item.Nhân_viên_Sale || ""}
+                ${item.Mã_đơn_hàng || ""}
+                ${item.City || ""} ${item.State || ""}
+                ${item.Mặt_hàng || ""}
             `)
         }));
     };
@@ -320,14 +320,15 @@ export const DatasheetF3: React.FC = () => {
                                 <tr>
                                     <th className="px-4 py-3 whitespace-nowrap border border-green-800 bg-[#1e7e34] sticky left-0 z-30">STT</th>
                                     <th className="px-4 py-3 whitespace-nowrap border border-green-800 bg-[#1e7e34] sticky left-[60px] z-30">Mã đơn hàng</th>
-                                    <th className="px-4 py-3 whitespace-nowrap border border-green-800 bg-[#1e7e34]">Ngày lên đơn</th>
-                                    <th className="px-4 py-3 whitespace-nowrap border border-green-800 bg-[#1e7e34]">Name*</th>
-                                    <th className="px-4 py-3 whitespace-nowrap border border-green-800 bg-[#1e7e34]">Phone</th>
-                                    <th className="px-4 py-3 whitespace-nowrap border border-green-800 bg-[#1e7e34]">Add</th>
-                                    <th className="px-4 py-3 whitespace-nowrap border border-green-800 bg-[#1e7e34]">Nhân viên Sale</th>
-                                    <th className="px-4 py-3 whitespace-nowrap border border-green-800 bg-[#1e7e34]">CSKH</th>
                                     <th className="px-4 py-3 whitespace-nowrap border border-green-800 bg-[#1e7e34]">Mặt hàng</th>
                                     <th className="px-4 py-3 whitespace-nowrap border border-green-800 bg-[#1e7e34]">Khu vực</th>
+                                    <th className="px-4 py-3 text-right whitespace-nowrap border border-green-800 bg-[#1e7e34]">Phí Chung</th>
+                                    <th className="px-4 py-3 text-right whitespace-nowrap border border-green-800 bg-[#1e7e34]">Phí Bay</th>
+                                    <th className="px-4 py-3 text-right whitespace-nowrap border border-green-800 bg-[#1e7e34]">Thuê TK</th>
+                                    <th className="px-4 py-3 text-right whitespace-nowrap border border-green-800 bg-[#1e7e34]">Tiền Hàng</th>
+                                    <th className="px-4 py-3 text-right whitespace-nowrap border border-green-800 bg-[#1e7e34]">Ship</th>
+                                    <th className="px-4 py-3 text-right whitespace-nowrap border border-green-800 bg-[#1e7e34]">Tiền đã đối soát</th>
+                                    <th className="px-4 py-3 text-right whitespace-nowrap border border-green-800 bg-[#1e7e34]">KT xác nhận</th>
                                     <th className="px-4 py-3 text-right whitespace-nowrap border border-green-800 bg-[#1e7e34]">Tổng tiền VNĐ</th>
                                     <th className="px-4 py-3 text-center whitespace-nowrap border border-green-800 bg-[#1e7e34]">Trạng thái cuối cùng</th>
                                 </tr>
@@ -340,19 +341,30 @@ export const DatasheetF3: React.FC = () => {
                                         <tr key={item?.Mã_đơn_hàng || index} className="hover:bg-slate-50 group">
                                             <td className="px-4 py-3 text-center border border-slate-200 text-slate-900 font-medium sticky left-0 z-20 bg-white group-hover:bg-slate-50">{actualIndex}</td>
                                             <td className="px-4 py-3 font-medium text-slate-900 border border-slate-200 sticky left-[60px] z-20 bg-white group-hover:bg-slate-50">{item?.Mã_đơn_hàng || '-'}</td>
-                                            <td className="px-4 py-3 text-slate-900 whitespace-nowrap border border-slate-200">
-                                                {item?.Ngày_lên_đơn ? item.Ngày_lên_đơn.split('-').reverse().join('/') : '-'}
-                                            </td>
-                                            <td className="px-4 py-3 text-slate-900 border border-slate-200 font-medium">{item?.Name || '-'}</td>
-                                            <td className="px-4 py-3 text-slate-900 border border-slate-200">{item?.Phone || '-'}</td>
-                                            <td className="px-4 py-3 text-slate-900 text-xs truncate max-w-[200px] border border-slate-200" title={`${item?.Add || ''}, ${item?.City || ''}, ${item?.State || ''} ${item?.Zipcode || ''}`}>
-                                                {item?.Add || '-'}
-                                            </td>
-                                            <td className="px-4 py-3 text-slate-900 border border-slate-200">{item?.Nhân_viên_Sale || '-'}</td>
-                                            <td className="px-4 py-3 text-slate-900 border border-slate-200">{item?.CSKH || '-'}</td>
                                             <td className="px-4 py-3 text-slate-900 border border-slate-200">{item?.Mặt_hàng || '-'}</td>
                                             <td className="px-4 py-3 text-slate-900 border border-slate-200">
                                                 {item?.Khu_vực === 'US' ? 'US' : 'Canada'}
+                                            </td>
+                                            <td className="px-4 py-3 text-right text-slate-900 border border-slate-200">
+                                                {formatCurrency(item?.Phí_Chung || 0)}
+                                            </td>
+                                            <td className="px-4 py-3 text-right text-slate-900 border border-slate-200">
+                                                {formatCurrency(item?.Phí_bay || 0)}
+                                            </td>
+                                            <td className="px-4 py-3 text-right text-slate-900 border border-slate-200">
+                                                {formatCurrency(item?.Thuê_TK || 0)}
+                                            </td>
+                                            <td className="px-4 py-3 text-right text-slate-900 border border-slate-200">
+                                                {formatCurrency(item?.Tiền_Hàng || 0)}
+                                            </td>
+                                            <td className="px-4 py-3 text-right text-slate-900 border border-slate-200">
+                                                {formatCurrency(item?.Phí_ship || 0)}
+                                            </td>
+                                            <td className="px-4 py-3 text-right text-slate-900 border border-slate-200">
+                                                {formatCurrency(item?.Tiền_Việt_đã_đối_soát || 0)}
+                                            </td>
+                                            <td className="px-4 py-3 text-right text-slate-900 border border-slate-200">
+                                                {item?.Kế_toán_xác_nhận_thu_tiền_về || '-'}
                                             </td>
                                             <td className="px-4 py-3 text-right font-medium text-slate-900 border border-slate-200">
                                                 {formatCurrency(item?.Tổng_tiền_VNĐ || 0)}
