@@ -1,5 +1,5 @@
-import { Download, RefreshCw, Save, Search } from 'lucide-react';
-import React, { useEffect, useState } from 'react';
+import { Download, RefreshCw, Save, Search, Upload } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { ExchangeRates, F3Data } from '../types';
 
@@ -22,10 +22,6 @@ function useDebounce<T>(value: T, delay: number): T {
     return debouncedValue;
 }
 
-const normalizeString = (str: string) => {
-    return str ? str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase() : "";
-};
-
 export const DatasheetF3: React.FC = () => {
     const [data, setData] = useState<F3DataEnhanced[]>([]);
     const [loading, setLoading] = useState(true);
@@ -33,6 +29,31 @@ export const DatasheetF3: React.FC = () => {
     const debouncedSearchTerm = useDebounce(searchTerm, 300);
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage] = useState(50);
+    const [isSaving, setIsSaving] = useState(false);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
+    // Filters
+    const [fromDate, setFromDate] = useState('');
+    const [toDate, setToDate] = useState('');
+    const [selectedMarket, setSelectedMarket] = useState('');
+    const [selectedProduct, setSelectedProduct] = useState('');
+    const [selectedTeam, setSelectedTeam] = useState('');
+
+    // Derive unique options for filters
+    const uniqueMarkets = React.useMemo(() => {
+        const markets = new Set(data.map(i => i.Khu_vực).filter(Boolean));
+        return Array.from(markets).sort();
+    }, [data]);
+
+    const uniqueProducts = React.useMemo(() => {
+        const products = new Set(data.map(i => i.Mặt_hàng).filter(Boolean));
+        return Array.from(products).sort();
+    }, [data]);
+
+    const uniqueTeams = React.useMemo(() => {
+        const teams = new Set(data.map(i => i.Team).filter(Boolean));
+        return Array.from(teams).sort();
+    }, [data]);
 
     // Helper to process raw data into enhanced data
     const processRawData = (rawData: F3Data[]): F3DataEnhanced[] => {
@@ -56,37 +77,25 @@ export const DatasheetF3: React.FC = () => {
         KRW: 17.9
     });
     const [isSavingRates, setIsSavingRates] = useState(false);
-    const [isBackgroundUpdating, setIsBackgroundUpdating] = useState(false);
 
     const fetchData = async (useCache = true) => {
         // Try to load from cache first
         if (useCache) {
-            const cachedData = sessionStorage.getItem('f3_data_cache');
+            const cachedData = sessionStorage.getItem('f3_data_cache_enhanced');
             const cachedRates = sessionStorage.getItem('exchange_rates_cache');
 
             if (cachedData && cachedRates) {
-                // If using old cache format (without _searchStr), re-process might be safer
-                // But for now assume cache is fresh or user will refresh.
-                // We'll trust the process if it has _searchStr, otherwise re-process.
-                const parsedData = JSON.parse(cachedData);
-                if (parsedData.length > 0 && !parsedData[0]._searchStr) {
-                    // Old cache detected, re-fetch or re-process
-                    setLoading(true);
-                } else {
-                    setData(parsedData);
-                    setExchangeRates(JSON.parse(cachedRates));
-                    setLoading(false);
-                    setIsBackgroundUpdating(true); // Indicate we are checking for updates
-                }
+                setData(JSON.parse(cachedData));
+                setExchangeRates(JSON.parse(cachedRates));
+                setLoading(false);
             } else {
-                setLoading(true); // No cache, show full loader
+                setLoading(true);
             }
         } else {
-            setLoading(true); // Explicit refresh
+            setLoading(true);
         }
 
         try {
-            // Fetch both in parallel
             const [f3Res, ratesRes] = await Promise.all([
                 fetch('https://lumi-6dff7-default-rtdb.asia-southeast1.firebasedatabase.app/datasheet/F3.json'),
                 fetch('https://lumi-6dff7-default-rtdb.asia-southeast1.firebasedatabase.app/settings/exchange_rates.json')
@@ -97,11 +106,9 @@ export const DatasheetF3: React.FC = () => {
                 ratesRes.json()
             ]);
 
-            // Process F3 Data
             if (f3Json) {
                 const rawData = Object.values(f3Json) as F3Data[];
                 const enhancedData = processRawData(rawData);
-                // Sort by default (Date desc) so initial render is correct
                 enhancedData.sort((a, b) => (b._timestamp || 0) - (a._timestamp || 0));
 
                 setData(enhancedData);
@@ -111,7 +118,6 @@ export const DatasheetF3: React.FC = () => {
                 sessionStorage.removeItem('f3_data_cache_enhanced');
             }
 
-            // Process Rates
             if (ratesJson) {
                 setExchangeRates(ratesJson);
                 sessionStorage.setItem('exchange_rates_cache', JSON.stringify(ratesJson));
@@ -121,7 +127,6 @@ export const DatasheetF3: React.FC = () => {
             console.error('Error fetching data:', error);
         } finally {
             setLoading(false);
-            setIsBackgroundUpdating(false);
         }
     };
 
@@ -133,7 +138,6 @@ export const DatasheetF3: React.FC = () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(exchangeRates)
             });
-            // Update cache after save
             sessionStorage.setItem('exchange_rates_cache', JSON.stringify(exchangeRates));
             alert('Đã lưu tỷ giá thành công!');
         } catch (error) {
@@ -142,6 +146,108 @@ export const DatasheetF3: React.FC = () => {
         } finally {
             setIsSavingRates(false);
         }
+    };
+
+
+
+    const handleImportClick = () => {
+        fileInputRef.current?.click();
+    };
+
+    const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+            try {
+                const bstr = evt.target?.result;
+                const wb = XLSX.read(bstr, { type: 'binary' });
+                const wsname = wb.SheetNames[0];
+                const ws = wb.Sheets[wsname];
+                const jsonData = XLSX.utils.sheet_to_json<any>(ws);
+
+                // Mapping logic: Map Vietnamese headers to F3Data keys
+                // We'll accept slightly different variations to be robust
+                const mappedData: F3Data[] = jsonData.map((row) => {
+                    return {
+                        Mã_đơn_hàng: row['Mã đơn hàng'] || row['Mã_đơn_hàng'] || '',
+                        Mặt_hàng: row['Mặt hàng'] || row['Mặt_hàng'] || '',
+                        Ngày_lên_đơn: row['Ngày lên đơn'] || row['Ngày_lên_đơn'] || '',
+                        Name: row['Name'] || row['Tên'] || '',
+                        Khu_vực: row['Khu vực'] || row['Khu_vực'] || '',
+                        City: row['City'] || row['Thành phố'] || '',
+                        State: row['State'] || row['Bang'] || '',
+                        Zipcode: row['Zipcode'] || '',
+                        Tiền_Hàng: Number(row['Tiền Hàng'] || row['Tiền_Hàng'] || 0),
+                        Phí_Chung: Number(row['Phí Chung'] || row['Phí_Chung'] || 0),
+                        Phí_bay: Number(row['Phí Bay'] || row['Phí_bay'] || 0),
+                        Thuê_TK: Number(row['Thuê TK'] || row['Thuê_TK'] || 0),
+                        Phí_ship: Number(row['Ship'] || row['Phí_ship'] || 0),
+                        Tiền_Việt_đã_đối_soát: Number(row['Tiền đã đối soát'] || row['Tiền_Việt_đã_đối_soát'] || 0),
+                        Kế_toán_xác_nhận_thu_tiền_về: row['KT xác nhận'] || row['Kế_toán_xác_nhận_thu_tiền_về'] || '',
+                        Tổng_tiền_VNĐ: Number(row['Tổng tiền VNĐ'] || row['Tổng_tiền_VNĐ'] || 0),
+                        Trạng_thái_giao_hàng_NB: row['Trạng thái cuối cùng'] || row['Trạng_thái_giao_hàng_NB'] || '',
+                        // Preserve other fields if present or default
+                        Team: row['Team'] || row['Chi nhánh'] || '',
+                        Ghi_chú: row['Ghi chú'] || '',
+                        Hình_thức_thanh_toán: row['Hình thức thanh toán'] || '',
+                        Kết_quả_Check: row['Kết quả Check'] || '',
+                        Lý_do: row['Lý do'] || '',
+                        Mã_Tracking: row['Mã Tracking'] || '',
+                        NV_Vận_đơn: row['NV Vận đơn'] || '',
+                        Nhân_viên_Marketing: row['Nhân viên Marketing'] || '',
+                        Thời_gian_cutoff: row['Thời gian cutoff'] || '',
+                        Trạng_thái_thu_tiền: row['Trạng thái thu tiền'] || '',
+                        Đơn_vị_vận_chuyển: row['Đơn vị vận chuyển'] || ''
+                    };
+                }).filter(item => item.Mã_đơn_hàng); // Filter out empty rows
+
+                if (mappedData.length === 0) {
+                    alert('Không tìm thấy dữ liệu hợp lệ trong file Excel.');
+                    return;
+                }
+
+                // MERGE Logic
+                // Create a map of existing data
+                const currentDataMap = new Map(data.map(i => [i.Mã_đơn_hàng, i]));
+                let newCount = 0;
+                let updateCount = 0;
+
+                mappedData.forEach(newItem => {
+                    if (currentDataMap.has(newItem.Mã_đơn_hàng)) {
+                        // Update existing, create merged object to keep fields not in excel (if any)
+                        const existing = currentDataMap.get(newItem.Mã_đơn_hàng)!;
+                        // Use processRawData helper for single item potentially? Just spread for now.
+                        // We need to re-enhance later.
+                        currentDataMap.set(newItem.Mã_đơn_hàng, { ...existing, ...newItem });
+                        updateCount++;
+                    } else {
+                        // Add new (will need enhancement)
+                        // Casting as specific Enhanced type for map storage
+                        currentDataMap.set(newItem.Mã_đơn_hàng, { ...newItem } as F3DataEnhanced);
+                        newCount++;
+                    }
+                });
+
+                // Convert back to array
+                const mergedRawData = Array.from(currentDataMap.values());
+                const finalEnhancedData = processRawData(mergedRawData);
+
+                // Re-sort
+                finalEnhancedData.sort((a, b) => (b._timestamp || 0) - (a._timestamp || 0));
+
+                setData(finalEnhancedData);
+                sessionStorage.setItem('f3_data_cache_enhanced', JSON.stringify(finalEnhancedData));
+                alert(`Đã import thành công!\n- Thêm mới: ${newCount} đơn\n- Cập nhật: ${updateCount} đơn\n\nLƯU Ý: Vui lòng nhấn nút "Lưu dữ liệu" để ghi lại các thay đổi lên hệ thống.`);
+
+            } catch (error) {
+                console.error("Import Error:", error);
+                alert("Lỗi khi đọc file Excel.");
+            }
+            if (fileInputRef.current) fileInputRef.current.value = '';
+        };
+        reader.readAsBinaryString(file);
     };
 
     const handleRateChange = (currency: keyof ExchangeRates, value: string) => {
@@ -170,23 +276,42 @@ export const DatasheetF3: React.FC = () => {
 
     // 1. Optimize Filter & Sort with useMemo
     const processedData = React.useMemo(() => {
-        // If no search, return data directly (already sorted by default in fetch)
-        // This is a HUGE optimization because it skips the entire filter loop
-        if (!debouncedSearchTerm) {
-            return data;
+        let filtered = data;
+
+        // 1. Filter by Date Range
+        if (fromDate || toDate) {
+            const start = fromDate ? new Date(fromDate).getTime() : -Infinity;
+            const end = toDate ? new Date(toDate).getTime() + 86400000 : Infinity; // Include the end date
+
+            filtered = filtered.filter(item => {
+                const itemTime = item._timestamp || 0;
+                return itemTime >= start && itemTime < end;
+            });
         }
 
-        const normalizedSearch = normalizeString(debouncedSearchTerm);
-        // Pre-tokenize search term ONCE
-        const searchTokens = normalizedSearch.split(/\s+/).filter(t => t.length > 0);
+        // 2. Filter by Attributes
+        if (selectedMarket) {
+            filtered = filtered.filter(item => item.Khu_vực === selectedMarket);
+        }
+        if (selectedProduct) {
+            filtered = filtered.filter(item => item.Mặt_hàng === selectedProduct);
+        }
+        if (selectedTeam) {
+            filtered = filtered.filter(item => item.Team === selectedTeam);
+        }
 
-        // O(N) scan but with simple string includes against pre-calc string
-        return data.filter(item => {
-            if (!item._searchStr) return false;
-            // Check if ALL tokens are present in the searchable text
-            return searchTokens.every(token => item._searchStr!.includes(token));
-        });
-    }, [data, debouncedSearchTerm]);
+        // 3. Search Term
+        if (debouncedSearchTerm) {
+            const normalizedSearch = normalizeString(debouncedSearchTerm);
+            const searchTokens = normalizedSearch.split(/\s+/).filter(t => t.length > 0);
+            filtered = filtered.filter(item => {
+                if (!item._searchStr) return false;
+                return searchTokens.every(token => item._searchStr!.includes(token));
+            });
+        }
+
+        return filtered;
+    }, [data, debouncedSearchTerm, fromDate, toDate, selectedMarket, selectedProduct, selectedTeam]);
 
     // 2. Pagination Logic
     const totalPages = Math.ceil(processedData.length / itemsPerPage);
@@ -202,8 +327,29 @@ export const DatasheetF3: React.FC = () => {
     }, [debouncedSearchTerm]);
 
     const handleExport = () => {
-        // Export ALL filtered data, not just current page
-        const ws = XLSX.utils.json_to_sheet(processedData);
+        // Prepare export data (Flattening if needed or just using raw)
+        // We'll export roughly what the table shows + extra fields
+        const exportData = processedData.map(item => ({
+            'Mã đơn hàng': item.Mã_đơn_hàng,
+            'Ngày lên đơn': item.Ngày_lên_đơn,
+            'Name': item.Name,
+            'Mặt hàng': item.Mặt_hàng,
+            'Khu vực': item.Khu_vực,
+            'Thành phố': item.City,
+            'Bang': item.State,
+            'Phí Chung': item.Phí_Chung,
+            'Phí Bay': item.Phí_bay,
+            'Thuê TK': item.Thuê_TK,
+            'Tiền Hàng': item.Tiền_Hàng,
+            'Ship': item.Phí_ship,
+            'Tiền đã đối soát': item.Tiền_Việt_đã_đối_soát,
+            'KT xác nhận': item.Kế_toán_xác_nhận_thu_tiền_về,
+            'Tổng tiền VNĐ': item.Tổng_tiền_VNĐ,
+            'Trạng thái cuối cùng': item.Trạng_thái_giao_hàng_NB,
+            'Chi nhánh': item.Team
+        }));
+
+        const ws = XLSX.utils.json_to_sheet(exportData);
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, "F3_Data");
         XLSX.writeFile(wb, `F3_Data_${new Date().toISOString().split('T')[0]}.xlsx`);
@@ -226,73 +372,124 @@ export const DatasheetF3: React.FC = () => {
                         </button>
                     </div>
                     <div className="grid grid-cols-5 gap-2 text-xs">
-                        <div className="flex flex-col gap-1">
-                            <label className="font-semibold text-slate-500 text-center">US</label>
-                            <input
-                                type="number"
-                                value={exchangeRates.US}
-                                onChange={(e) => handleRateChange('US', e.target.value)}
-                                className="border border-slate-300 rounded px-1 py-1 text-center w-16 focus:border-blue-500 outline-none"
-                            />
-                        </div>
-                        <div className="flex flex-col gap-1">
-                            <label className="font-semibold text-slate-500 text-center">CAD</label>
-                            <input
-                                type="number"
-                                value={exchangeRates.CAD}
-                                onChange={(e) => handleRateChange('CAD', e.target.value)}
-                                className="border border-slate-300 rounded px-1 py-1 text-center w-16 focus:border-blue-500 outline-none"
-                            />
-                        </div>
-                        <div className="flex flex-col gap-1">
-                            <label className="font-semibold text-slate-500 text-center">AUS</label>
-                            <input
-                                type="number"
-                                value={exchangeRates.AUD}
-                                onChange={(e) => handleRateChange('AUD', e.target.value)}
-                                className="border border-slate-300 rounded px-1 py-1 text-center w-16 focus:border-blue-500 outline-none"
-                            />
-                        </div>
-                        <div className="flex flex-col gap-1">
-                            <label className="font-semibold text-slate-500 text-center">Nhật</label>
-                            <input
-                                type="number"
-                                value={exchangeRates.JPY}
-                                onChange={(e) => handleRateChange('JPY', e.target.value)}
-                                className="border border-slate-300 rounded px-1 py-1 text-center w-16 focus:border-blue-500 outline-none"
-                            />
-                        </div>
-                        <div className="flex flex-col gap-1">
-                            <label className="font-semibold text-slate-500 text-center">Hàn</label>
-                            <input
-                                type="number"
-                                value={exchangeRates.KRW}
-                                onChange={(e) => handleRateChange('KRW', e.target.value)}
-                                className="border border-slate-300 rounded px-1 py-1 text-center w-16 focus:border-blue-500 outline-none"
-                            />
-                        </div>
+                        {Object.entries(exchangeRates).map(([currency, value]) => (
+                            <div key={currency} className="flex flex-col gap-1">
+                                <label className="font-semibold text-slate-500 text-center">{currency}</label>
+                                <input
+                                    type="number"
+                                    value={value}
+                                    onChange={(e) => handleRateChange(currency as keyof ExchangeRates, e.target.value)}
+                                    className="border border-slate-300 rounded px-1 py-1 text-center w-16 focus:border-blue-500 outline-none"
+                                />
+                            </div>
+                        ))}
                     </div>
                 </div>
 
                 {/* Header Actions */}
-                <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex-1 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                    <div>
-                        <h2 className="text-xl font-bold text-slate-800">Dữ liệu F3</h2>
-                        <p className="text-sm text-slate-500 mt-1">Danh sách đơn hàng từ hệ thống</p>
+                <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex-1 flex flex-col justify-between gap-4">
+                    <div className="flex justify-between items-center">
+                        <div>
+                            <h2 className="text-xl font-bold text-slate-800">Dữ liệu F3</h2>
+                            <p className="text-sm text-slate-500 mt-1">Danh sách đơn hàng từ hệ thống</p>
+                        </div>
+                        <div className="flex gap-2">
+                            <input
+                                type="file"
+                                ref={fileInputRef}
+                                onChange={handleFileUpload}
+                                accept=".xlsx, .xls"
+                                className="hidden"
+                            />
+                            <button
+                                onClick={handleRefresh}
+                                className="flex items-center gap-2 px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors text-sm font-medium"
+                            >
+                                <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> Làm mới
+                            </button>
+                            <button
+                                onClick={handleImportClick}
+                                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+                            >
+                                <Upload size={16} /> Import Excel
+                            </button>
+                            <button
+                                onClick={handleExport}
+                                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium"
+                            >
+                                <Download size={16} /> Xuất Excel
+                            </button>
+                        </div>
                     </div>
-                    <div className="flex gap-2">
-                        <button
-                            onClick={handleRefresh}
-                            className="flex items-center gap-2 px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors text-sm font-medium"
-                        >
-                            <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> Làm mới
-                        </button>
-                        <button
-                            onClick={handleExport}
-                            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium"
-                        >
-                            <Download size={16} /> Xuất Excel
-                        </button>
+
+                    {/* FILTERS BAR: TIME, MARKET, PRODUCT, FFM */}
+                    <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mt-2">
+                        {/* 1. From Date */}
+                        <div>
+                            <label className="block text-xs font-semibold text-slate-500 mb-1">Từ ngày</label>
+                            <input
+                                type="date"
+                                className="w-full text-xs border border-slate-300 rounded px-2 py-1.5 focus:border-blue-500 outline-none"
+                                value={fromDate}
+                                onChange={e => setFromDate(e.target.value)}
+                            />
+                        </div>
+
+                        {/* 2. To Date */}
+                        <div>
+                            <label className="block text-xs font-semibold text-slate-500 mb-1">Đến ngày</label>
+                            <input
+                                type="date"
+                                className="w-full text-xs border border-slate-300 rounded px-2 py-1.5 focus:border-blue-500 outline-none"
+                                value={toDate}
+                                onChange={e => setToDate(e.target.value)}
+                            />
+                        </div>
+
+                        {/* 3. Market */}
+                        <div>
+                            <label className="block text-xs font-semibold text-slate-500 mb-1">Thị trường</label>
+                            <select
+                                className="w-full text-xs border border-slate-300 rounded px-2 py-1.5 focus:border-blue-500 outline-none bg-white"
+                                value={selectedMarket}
+                                onChange={e => setSelectedMarket(e.target.value)}
+                            >
+                                <option value="">Tất cả</option>
+                                {uniqueMarkets.map(m => (
+                                    <option key={m} value={m}>{m === 'US' ? 'US' : m === 'Canada' ? 'Canada' : m}</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        {/* 4. Product */}
+                        <div>
+                            <label className="block text-xs font-semibold text-slate-500 mb-1">Sản phẩm</label>
+                            <select
+                                className="w-full text-xs border border-slate-300 rounded px-2 py-1.5 focus:border-blue-500 outline-none bg-white"
+                                value={selectedProduct}
+                                onChange={e => setSelectedProduct(e.target.value)}
+                            >
+                                <option value="">Tất cả</option>
+                                {uniqueProducts.map(p => (
+                                    <option key={p} value={p}>{p}</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        {/* 5. FFM (Team) */}
+                        <div>
+                            <label className="block text-xs font-semibold text-slate-500 mb-1">FFM (Team)</label>
+                            <select
+                                className="w-full text-xs border border-slate-300 rounded px-2 py-1.5 focus:border-blue-500 outline-none bg-white"
+                                value={selectedTeam}
+                                onChange={e => setSelectedTeam(e.target.value)}
+                            >
+                                <option value="">Tất cả</option>
+                                {uniqueTeams.map(t => (
+                                    <option key={t} value={t}>{t}</option>
+                                ))}
+                            </select>
+                        </div>
                     </div>
                 </div>
             </div>
