@@ -1,9 +1,10 @@
-import { Download, RefreshCw, Save, Search, Upload } from 'lucide-react';
+import { Download, Edit, Eye, RefreshCw, Save, Search, Upload, X } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { ExchangeRates, F3Data } from '../types';
 
 interface F3DataEnhanced extends F3Data {
+    id?: string;
     _searchStr?: string;
     _timestamp?: number;
 }
@@ -29,6 +30,8 @@ export const DatasheetF3: React.FC = () => {
     const debouncedSearchTerm = useDebounce(searchTerm, 300);
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage] = useState(50);
+    const [viewingItem, setViewingItem] = useState<F3DataEnhanced | null>(null);
+    const [editingItem, setEditingItem] = useState<F3DataEnhanced | null>(null);
     const [isSaving, setIsSaving] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -56,7 +59,7 @@ export const DatasheetF3: React.FC = () => {
     }, [data]);
 
     // Helper to process raw data into enhanced data
-    const processRawData = (rawData: F3Data[]): F3DataEnhanced[] => {
+    const processRawData = (rawData: (F3Data & { id?: string })[]): F3DataEnhanced[] => {
         return rawData.map(item => ({
             ...item,
             _timestamp: item.Ngày_lên_đơn ? new Date(item.Ngày_lên_đơn).getTime() : 0,
@@ -107,7 +110,11 @@ export const DatasheetF3: React.FC = () => {
             ]);
 
             if (f3Json) {
-                const rawData = Object.values(f3Json) as F3Data[];
+                // Map object keys to 'id' property
+                const rawData = Object.entries(f3Json).map(([key, value]) => ({
+                    ...(value as F3Data),
+                    id: key
+                }));
                 const enhancedData = processRawData(rawData);
                 enhancedData.sort((a, b) => (b._timestamp || 0) - (a._timestamp || 0));
 
@@ -149,6 +156,45 @@ export const DatasheetF3: React.FC = () => {
     };
 
 
+
+
+
+    const handleSaveEdit = async () => {
+        if (!editingItem) return;
+
+        try {
+            // 1. Update Firebase if 'id' exists
+            if (editingItem.id) {
+                // Remove internal fields before sending
+                const { id, _searchStr, _timestamp, ...updateData } = editingItem;
+                await fetch(`https://lumi-6dff7-default-rtdb.asia-southeast1.firebasedatabase.app/datasheet/F3/${editingItem.id}.json`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(updateData)
+                });
+            }
+
+            // 2. Update local state
+            const newData = data.map(item =>
+                item.Mã_đơn_hàng === editingItem.Mã_đơn_hàng ? editingItem : item
+            );
+
+            // Re-process to update search string and timestamp if changed
+            const processedNewData = processRawData(newData);
+            // Re-sort
+            processedNewData.sort((a, b) => (b._timestamp || 0) - (a._timestamp || 0));
+
+            setData(processedNewData);
+            sessionStorage.setItem('f3_data_cache_enhanced', JSON.stringify(processedNewData));
+
+            setEditingItem(null);
+            alert("Đã cập nhật đơn hàng thành công!");
+
+        } catch (error) {
+            console.error("Update Error:", error);
+            alert("Lỗi khi cập nhật đơn hàng.");
+        }
+    };
 
     const handleImportClick = () => {
         fileInputRef.current?.click();
@@ -217,9 +263,8 @@ export const DatasheetF3: React.FC = () => {
                 mappedData.forEach(newItem => {
                     if (currentDataMap.has(newItem.Mã_đơn_hàng)) {
                         // Update existing, create merged object to keep fields not in excel (if any)
+                        // PRESERVE ID FROM EXISTING
                         const existing = currentDataMap.get(newItem.Mã_đơn_hàng)!;
-                        // Use processRawData helper for single item potentially? Just spread for now.
-                        // We need to re-enhance later.
                         currentDataMap.set(newItem.Mã_đơn_hàng, { ...existing, ...newItem });
                         updateCount++;
                     } else {
@@ -527,7 +572,7 @@ export const DatasheetF3: React.FC = () => {
                                     <th className="px-4 py-3 text-right whitespace-nowrap border border-green-800 bg-[#1e7e34]">Tiền đã đối soát</th>
                                     <th className="px-4 py-3 text-right whitespace-nowrap border border-green-800 bg-[#1e7e34]">KT xác nhận</th>
                                     <th className="px-4 py-3 text-right whitespace-nowrap border border-green-800 bg-[#1e7e34]">Tổng tiền VNĐ</th>
-                                    <th className="px-4 py-3 text-center whitespace-nowrap border border-green-800 bg-[#1e7e34]">Trạng thái cuối cùng</th>
+                                    <th className="px-4 py-3 text-center whitespace-nowrap border border-green-800 bg-[#1e7e34]">Thao tác</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-200">
@@ -567,17 +612,22 @@ export const DatasheetF3: React.FC = () => {
                                                 {formatCurrency(item?.Tổng_tiền_VNĐ || 0)}
                                             </td>
                                             <td className="px-4 py-3 text-center border border-slate-200">
-                                                <select
-                                                    className="border border-slate-300 rounded px-2 py-1 text-xs bg-white focus:ring-2 focus:ring-green-500 outline-none w-full max-w-[140px]"
-                                                    defaultValue={item?.Trạng_thái_giao_hàng_NB || ""}
-                                                >
-                                                    <option value="">-- Chọn --</option>
-                                                    <option value="Giao Thành Công">Giao Thành Công</option>
-                                                    <option value="Đang Giao">Đang Giao</option>
-                                                    <option value="Chưa Giao">Chưa Giao</option>
-                                                    <option value="Hủy">Hủy</option>
-                                                    <option value="Hoàn">Hoàn</option>
-                                                </select>
+                                                <div className="flex items-center justify-center gap-2">
+                                                    <button
+                                                        className="text-blue-500 hover:text-blue-700"
+                                                        title="Xem chi tiết"
+                                                        onClick={() => setViewingItem(item)}
+                                                    >
+                                                        <Eye size={16} />
+                                                    </button>
+                                                    <button
+                                                        className="text-yellow-500 hover:text-yellow-700"
+                                                        title="Sửa"
+                                                        onClick={() => setEditingItem({ ...item })}
+                                                    >
+                                                        <Edit size={16} />
+                                                    </button>
+                                                </div>
                                             </td>
                                         </tr>
                                     );
@@ -614,6 +664,144 @@ export const DatasheetF3: React.FC = () => {
                     </div>
                 </div>
             </div>
+            {/* Modal View Details */}
+            {viewingItem && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+                    <div className="bg-white rounded-xl shadow-lg w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
+                        <div className="p-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
+                            <h3 className="font-bold text-lg text-slate-800">Chi tiết đơn hàng: {viewingItem.Mã_đơn_hàng}</h3>
+                            <button onClick={() => setViewingItem(null)} className="text-slate-500 hover:text-slate-700">
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <div className="p-6 overflow-y-auto grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {Object.entries(viewingItem).map(([key, value]) => {
+                                if (key.startsWith('_')) return null; // Skip internal fields
+                                return (
+                                    <div key={key} className="flex flex-col border-b border-slate-100 pb-2">
+                                        <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">{key.replace(/_/g, ' ')}</span>
+                                        <span className="text-sm text-slate-800 break-words font-medium">
+                                            {typeof value === 'number' ? formatCurrency(value) : ((value as any) || '-')}
+                                        </span>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                        <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-end">
+                            <button
+                                onClick={() => setViewingItem(null)}
+                                className="px-4 py-2 bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 transition-colors font-medium"
+                            >
+                                Đóng
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Modal Edit Item */}
+            {editingItem && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+                    <div className="bg-white rounded-xl shadow-lg w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
+                        <div className="p-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
+                            <h3 className="font-bold text-lg text-slate-800">Sửa đơn hàng: {editingItem.Mã_đơn_hàng}</h3>
+                            <button onClick={() => setEditingItem(null)} className="text-slate-500 hover:text-slate-700">
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <div className="p-6 overflow-y-auto grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {/* Render inputs for simplified editing of key fields */}
+                            <div className="flex flex-col gap-1">
+                                <label className="text-xs font-semibold text-slate-500">Mã đơn hàng</label>
+                                <input
+                                    type="text"
+                                    value={editingItem.Mã_đơn_hàng || ''}
+                                    disabled
+                                    className="border border-slate-300 rounded px-2 py-1.5 bg-slate-100 text-slate-500"
+                                />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                                <label className="text-xs font-semibold text-slate-500">Ngày lên đơn</label>
+                                <input
+                                    type="date"
+                                    value={editingItem.Ngày_lên_đơn ? editingItem.Ngày_lên_đơn.split('T')[0] : ''}
+                                    onChange={(e) => setEditingItem({ ...editingItem, Ngày_lên_đơn: e.target.value })}
+                                    className="border border-slate-300 rounded px-2 py-1.5"
+                                />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                                <label className="text-xs font-semibold text-slate-500">Mặt hàng</label>
+                                <input
+                                    type="text"
+                                    value={editingItem.Mặt_hàng || ''}
+                                    onChange={(e) => setEditingItem({ ...editingItem, Mặt_hàng: e.target.value })}
+                                    className="border border-slate-300 rounded px-2 py-1.5"
+                                />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                                <label className="text-xs font-semibold text-slate-500">Chi nhánh (Team)</label>
+                                <input
+                                    type="text"
+                                    value={editingItem.Team || ''}
+                                    onChange={(e) => setEditingItem({ ...editingItem, Team: e.target.value })}
+                                    className="border border-slate-300 rounded px-2 py-1.5"
+                                />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                                <label className="text-xs font-semibold text-slate-500">Khu vực</label>
+                                <select
+                                    value={editingItem.Khu_vực || ''}
+                                    onChange={(e) => setEditingItem({ ...editingItem, Khu_vực: e.target.value })}
+                                    className="border border-slate-300 rounded px-2 py-1.5 bg-white"
+                                >
+                                    <option value="US">US</option>
+                                    <option value="Canada">Canada</option>
+                                </select>
+                            </div>
+                            <div className="flex flex-col gap-1">
+                                <label className="text-xs font-semibold text-slate-500">Tổng tiền VNĐ</label>
+                                <input
+                                    type="number"
+                                    value={editingItem.Tổng_tiền_VNĐ || 0}
+                                    onChange={(e) => setEditingItem({ ...editingItem, Tổng_tiền_VNĐ: Number(e.target.value) })}
+                                    className="border border-slate-300 rounded px-2 py-1.5"
+                                />
+                            </div>
+                            <div className="flex flex-col gap-1 md:col-span-2">
+                                <label className="text-xs font-semibold text-slate-500">Trạng thái cuối cùng</label>
+                                <select
+                                    className="border border-slate-300 rounded px-2 py-1.5 bg-white w-full"
+                                    value={editingItem.Trạng_thái_giao_hàng_NB || ""}
+                                    onChange={(e) => setEditingItem({ ...editingItem, Trạng_thái_giao_hàng_NB: e.target.value })}
+                                >
+                                    <option value="">-- Chọn --</option>
+                                    <option value="Giao Thành Công">Giao Thành Công</option>
+                                    <option value="Đang Giao">Đang Giao</option>
+                                    <option value="Chưa Giao">Chưa Giao</option>
+                                    <option value="Hủy">Hủy</option>
+                                    <option value="Hoàn">Hoàn</option>
+                                </select>
+                            </div>
+
+                            {/* Dynamic fields for other properties only if needed - keeping it simple for now as requested */}
+                        </div>
+                        <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-end gap-2">
+                            <button
+                                onClick={() => setEditingItem(null)}
+                                className="px-4 py-2 bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 transition-colors font-medium"
+                            >
+                                Hủy
+                            </button>
+                            <button
+                                onClick={handleSaveEdit}
+                                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                            >
+                                Lưu Thay Đổi
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
