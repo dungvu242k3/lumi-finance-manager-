@@ -1,4 +1,4 @@
-import { Download, Edit, Eye, RefreshCw, Save, Search, Upload, X } from 'lucide-react';
+import { Download, Edit, Eye, RefreshCw, Save, Search, Settings, Upload, X } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { ExchangeRates, F3Data } from '../types';
@@ -23,6 +23,40 @@ function useDebounce<T>(value: T, delay: number): T {
     return debouncedValue;
 }
 
+// Column Definitions
+const COLUMN_DEFS = [
+    { id: 'stt', label: 'STT' },
+    { id: 'ma_don_hang', label: 'Mã đơn hàng' },
+    { id: 'ngay_len_don', label: 'Ngày lên đơn' },
+    { id: 'mat_hang', label: 'Mặt hàng' },
+    { id: 'name', label: 'Tên khách hàng' },
+    { id: 'khu_vuc', label: 'Khu vực' },
+    { id: 'city', label: 'City' },
+    { id: 'state', label: 'State' },
+    { id: 'zipcode', label: 'Zipcode' },
+    { id: 'team', label: 'Chi nhánh (Team)' },
+    { id: 'phi_chung', label: 'Phí Chung' },
+    { id: 'phi_bay', label: 'Phí Bay' },
+    { id: 'thue_tk', label: 'Thuê TK' },
+    { id: 'tien_hang', label: 'Tiền Hàng' },
+    { id: 'ship', label: 'Ship' },
+    { id: 'doi_soat', label: 'Tiền đã đối soát' },
+    { id: 'kt_xac_nhan', label: 'KT xác nhận' },
+    { id: 'tong_tien', label: 'Tổng tiền VNĐ' },
+    { id: 'trang_thai_nb', label: 'Trạng thái NB' },
+    { id: 'ghi_chu', label: 'Ghi chú' },
+    { id: 'hinh_thuc_tt', label: 'HT thanh toán' },
+    { id: 'ket_qua_check', label: 'Kết quả Check' },
+    { id: 'ly_do', label: 'Lý do' },
+    { id: 'ma_tracking', label: 'Mã Tracking' },
+    { id: 'nv_van_don', label: 'NV Vận đơn' },
+    { id: 'nv_marketing', label: 'NV Marketing' },
+    { id: 'thoi_gian_cutoff', label: 'Time Cutoff' },
+    { id: 'trang_thai_thu_tien', label: 'TT Thu tiền' },
+    { id: 'dv_van_chuyen', label: 'ĐV Vận chuyển' },
+    { id: 'thao_tac', label: 'Thao tác' },
+];
+
 export const DatasheetF3: React.FC = () => {
     const [data, setData] = useState<F3DataEnhanced[]>([]);
     const [loading, setLoading] = useState(true);
@@ -33,7 +67,43 @@ export const DatasheetF3: React.FC = () => {
     const [viewingItem, setViewingItem] = useState<F3DataEnhanced | null>(null);
     const [editingItem, setEditingItem] = useState<F3DataEnhanced | null>(null);
     const [isSaving, setIsSaving] = useState(false);
+
     const fileInputRef = useRef<HTMLInputElement>(null);
+
+    // Column Settings State
+    const [showColumnSettings, setShowColumnSettings] = useState(false);
+    const settingsRef = useRef<HTMLDivElement>(null);
+
+    // Close settings when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (settingsRef.current && !settingsRef.current.contains(event.target as Node)) {
+                setShowColumnSettings(false);
+            }
+        };
+
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, []);
+
+    const [visibleColumns, setVisibleColumns] = useState<string[]>(() => {
+        const saved = localStorage.getItem('f3_visible_columns');
+        return saved ? JSON.parse(saved) : COLUMN_DEFS.map(c => c.id);
+    });
+
+    const toggleColumn = (columnId: string) => {
+        setVisibleColumns(prev => {
+            const newCols = prev.includes(columnId)
+                ? prev.filter(c => c !== columnId)
+                : [...prev, columnId];
+            localStorage.setItem('f3_visible_columns', JSON.stringify(newCols));
+            return newCols;
+        });
+    };
+
+    const isColVisible = (id: string) => visibleColumns.includes(id);
 
     // Filters
     const [fromDate, setFromDate] = useState('');
@@ -464,6 +534,34 @@ export const DatasheetF3: React.FC = () => {
                             >
                                 <Download size={16} /> Xuất Excel
                             </button>
+
+                            {/* Column Settings Button */}
+                            <div className="relative" ref={settingsRef}>
+                                <button
+                                    onClick={() => setShowColumnSettings(!showColumnSettings)}
+                                    className="flex items-center gap-2 px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors text-sm font-medium"
+                                >
+                                    <Settings size={16} /> Cài đặt cột
+                                </button>
+                                {showColumnSettings && (
+                                    <div className="absolute right-0 top-full mt-2 w-56 bg-white rounded-xl shadow-lg border border-slate-200 z-50 p-2">
+                                        <div className="text-xs font-bold text-slate-500 mb-2 px-2 uppercase">Hiển thị cột</div>
+                                        <div className="max-h-60 overflow-y-auto space-y-1">
+                                            {COLUMN_DEFS.map(col => (
+                                                <label key={col.id} className="flex items-center gap-2 px-2 py-1.5 hover:bg-slate-50 rounded cursor-pointer">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={visibleColumns.includes(col.id)}
+                                                        onChange={() => toggleColumn(col.id)}
+                                                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                                                    />
+                                                    <span className="text-sm text-slate-700">{col.label}</span>
+                                                </label>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     </div>
 
@@ -560,19 +658,36 @@ export const DatasheetF3: React.FC = () => {
                         <table className="w-full text-sm text-left border-collapse">
                             <thead className="bg-[#1e7e34] text-white font-semibold sticky top-0 z-30 shadow-sm">
                                 <tr>
-                                    <th className="px-4 py-3 whitespace-nowrap border border-green-800 bg-[#1e7e34] sticky left-0 z-30">STT</th>
-                                    <th className="px-4 py-3 whitespace-nowrap border border-green-800 bg-[#1e7e34] sticky left-[60px] z-30">Mã đơn hàng</th>
-                                    <th className="px-4 py-3 whitespace-nowrap border border-green-800 bg-[#1e7e34]">Mặt hàng</th>
-                                    <th className="px-4 py-3 whitespace-nowrap border border-green-800 bg-[#1e7e34]">Khu vực</th>
-                                    <th className="px-4 py-3 text-right whitespace-nowrap border border-green-800 bg-[#1e7e34]">Phí Chung</th>
-                                    <th className="px-4 py-3 text-right whitespace-nowrap border border-green-800 bg-[#1e7e34]">Phí Bay</th>
-                                    <th className="px-4 py-3 text-right whitespace-nowrap border border-green-800 bg-[#1e7e34]">Thuê TK</th>
-                                    <th className="px-4 py-3 text-right whitespace-nowrap border border-green-800 bg-[#1e7e34]">Tiền Hàng</th>
-                                    <th className="px-4 py-3 text-right whitespace-nowrap border border-green-800 bg-[#1e7e34]">Ship</th>
-                                    <th className="px-4 py-3 text-right whitespace-nowrap border border-green-800 bg-[#1e7e34]">Tiền đã đối soát</th>
-                                    <th className="px-4 py-3 text-right whitespace-nowrap border border-green-800 bg-[#1e7e34]">KT xác nhận</th>
-                                    <th className="px-4 py-3 text-right whitespace-nowrap border border-green-800 bg-[#1e7e34]">Tổng tiền VNĐ</th>
-                                    <th className="px-4 py-3 text-center whitespace-nowrap border border-green-800 bg-[#1e7e34]">Thao tác</th>
+                                    {isColVisible('stt') && <th className="px-4 py-3 whitespace-nowrap border border-green-800 bg-[#1e7e34] sticky left-0 z-30">STT</th>}
+                                    {isColVisible('ma_don_hang') && <th className="px-4 py-3 whitespace-nowrap border border-green-800 bg-[#1e7e34] sticky left-[60px] z-30">Mã đơn hàng</th>}
+                                    {isColVisible('ngay_len_don') && <th className="px-4 py-3 whitespace-nowrap border border-green-800 bg-[#1e7e34]">Ngày lên đơn</th>}
+                                    {isColVisible('mat_hang') && <th className="px-4 py-3 whitespace-nowrap border border-green-800 bg-[#1e7e34]">Mặt hàng</th>}
+                                    {isColVisible('name') && <th className="px-4 py-3 whitespace-nowrap border border-green-800 bg-[#1e7e34]">Tên khách hàng</th>}
+                                    {isColVisible('khu_vuc') && <th className="px-4 py-3 whitespace-nowrap border border-green-800 bg-[#1e7e34]">Khu vực</th>}
+                                    {isColVisible('city') && <th className="px-4 py-3 whitespace-nowrap border border-green-800 bg-[#1e7e34]">City</th>}
+                                    {isColVisible('state') && <th className="px-4 py-3 whitespace-nowrap border border-green-800 bg-[#1e7e34]">State</th>}
+                                    {isColVisible('zipcode') && <th className="px-4 py-3 whitespace-nowrap border border-green-800 bg-[#1e7e34]">Zipcode</th>}
+                                    {isColVisible('team') && <th className="px-4 py-3 whitespace-nowrap border border-green-800 bg-[#1e7e34]">Chi nhánh</th>}
+                                    {isColVisible('phi_chung') && <th className="px-4 py-3 text-right whitespace-nowrap border border-green-800 bg-[#1e7e34]">Phí Chung</th>}
+                                    {isColVisible('phi_bay') && <th className="px-4 py-3 text-right whitespace-nowrap border border-green-800 bg-[#1e7e34]">Phí Bay</th>}
+                                    {isColVisible('thue_tk') && <th className="px-4 py-3 text-right whitespace-nowrap border border-green-800 bg-[#1e7e34]">Thuê TK</th>}
+                                    {isColVisible('tien_hang') && <th className="px-4 py-3 text-right whitespace-nowrap border border-green-800 bg-[#1e7e34]">Tiền Hàng</th>}
+                                    {isColVisible('ship') && <th className="px-4 py-3 text-right whitespace-nowrap border border-green-800 bg-[#1e7e34]">Ship</th>}
+                                    {isColVisible('doi_soat') && <th className="px-4 py-3 text-right whitespace-nowrap border border-green-800 bg-[#1e7e34]">Tiền đã đối soát</th>}
+                                    {isColVisible('kt_xac_nhan') && <th className="px-4 py-3 text-right whitespace-nowrap border border-green-800 bg-[#1e7e34]">KT xác nhận</th>}
+                                    {isColVisible('tong_tien') && <th className="px-4 py-3 text-right whitespace-nowrap border border-green-800 bg-[#1e7e34]">Tổng tiền VNĐ</th>}
+                                    {isColVisible('trang_thai_nb') && <th className="px-4 py-3 whitespace-nowrap border border-green-800 bg-[#1e7e34]">Trạng thái NB</th>}
+                                    {isColVisible('ghi_chu') && <th className="px-4 py-3 whitespace-nowrap border border-green-800 bg-[#1e7e34] min-w-[200px]">Ghi chú</th>}
+                                    {isColVisible('hinh_thuc_tt') && <th className="px-4 py-3 whitespace-nowrap border border-green-800 bg-[#1e7e34]">HT thanh toán</th>}
+                                    {isColVisible('ket_qua_check') && <th className="px-4 py-3 whitespace-nowrap border border-green-800 bg-[#1e7e34]">Kết quả Check</th>}
+                                    {isColVisible('ly_do') && <th className="px-4 py-3 whitespace-nowrap border border-green-800 bg-[#1e7e34]">Lý do</th>}
+                                    {isColVisible('ma_tracking') && <th className="px-4 py-3 whitespace-nowrap border border-green-800 bg-[#1e7e34]">Mã Tracking</th>}
+                                    {isColVisible('nv_van_don') && <th className="px-4 py-3 whitespace-nowrap border border-green-800 bg-[#1e7e34]">NV Vận đơn</th>}
+                                    {isColVisible('nv_marketing') && <th className="px-4 py-3 whitespace-nowrap border border-green-800 bg-[#1e7e34]">NV Marketing</th>}
+                                    {isColVisible('thoi_gian_cutoff') && <th className="px-4 py-3 whitespace-nowrap border border-green-800 bg-[#1e7e34]">Time Cutoff</th>}
+                                    {isColVisible('trang_thai_thu_tien') && <th className="px-4 py-3 whitespace-nowrap border border-green-800 bg-[#1e7e34]">TT Thu tiền</th>}
+                                    {isColVisible('dv_van_chuyen') && <th className="px-4 py-3 whitespace-nowrap border border-green-800 bg-[#1e7e34]">ĐV Vận chuyển</th>}
+                                    {isColVisible('thao_tac') && <th className="px-4 py-3 text-center whitespace-nowrap border border-green-800 bg-[#1e7e34] sticky right-0 z-30">Thao tác</th>}
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-200">
@@ -581,37 +696,55 @@ export const DatasheetF3: React.FC = () => {
                                     const actualIndex = (currentPage - 1) * itemsPerPage + index + 1;
                                     return (
                                         <tr key={item?.Mã_đơn_hàng || index} className="hover:bg-slate-50 group">
-                                            <td className="px-4 py-3 text-center border border-slate-200 text-slate-900 font-medium sticky left-0 z-20 bg-white group-hover:bg-slate-50">{actualIndex}</td>
-                                            <td className="px-4 py-3 font-medium text-slate-900 border border-slate-200 sticky left-[60px] z-20 bg-white group-hover:bg-slate-50">{item?.Mã_đơn_hàng || '-'}</td>
-                                            <td className="px-4 py-3 text-slate-900 border border-slate-200">{item?.Mặt_hàng || '-'}</td>
-                                            <td className="px-4 py-3 text-slate-900 border border-slate-200">
+                                            {isColVisible('stt') && <td className="px-4 py-3 text-center border border-slate-200 text-slate-900 font-medium sticky left-0 z-20 bg-white group-hover:bg-slate-50">{actualIndex}</td>}
+                                            {isColVisible('ma_don_hang') && <td className="px-4 py-3 font-medium text-slate-900 border border-slate-200 sticky left-[60px] z-20 bg-white group-hover:bg-slate-50">{item?.Mã_đơn_hàng || '-'}</td>}
+                                            {isColVisible('ngay_len_don') && <td className="px-4 py-3 text-slate-900 border border-slate-200 whitespace-nowrap">{item?.Ngày_lên_đơn ? item.Ngày_lên_đơn.split('T')[0] : '-'}</td>}
+                                            {isColVisible('mat_hang') && <td className="px-4 py-3 text-slate-900 border border-slate-200">{item?.Mặt_hàng || '-'}</td>}
+                                            {isColVisible('name') && <td className="px-4 py-3 text-slate-900 border border-slate-200">{item?.Name || '-'}</td>}
+                                            {isColVisible('khu_vuc') && <td className="px-4 py-3 text-slate-900 border border-slate-200">
                                                 {item?.Khu_vực === 'US' ? 'US' : 'Canada'}
-                                            </td>
-                                            <td className="px-4 py-3 text-right text-slate-900 border border-slate-200">
+                                            </td>}
+                                            {isColVisible('city') && <td className="px-4 py-3 text-slate-900 border border-slate-200">{item?.City || '-'}</td>}
+                                            {isColVisible('state') && <td className="px-4 py-3 text-slate-900 border border-slate-200">{item?.State || '-'}</td>}
+                                            {isColVisible('zipcode') && <td className="px-4 py-3 text-slate-900 border border-slate-200">{item?.Zipcode || '-'}</td>}
+                                            {isColVisible('team') && <td className="px-4 py-3 text-slate-900 border border-slate-200">{item?.Team || '-'}</td>}
+                                            {isColVisible('phi_chung') && <td className="px-4 py-3 text-right text-slate-900 border border-slate-200">
                                                 {formatCurrency(item?.Phí_Chung || 0)}
-                                            </td>
-                                            <td className="px-4 py-3 text-right text-slate-900 border border-slate-200">
+                                            </td>}
+                                            {isColVisible('phi_bay') && <td className="px-4 py-3 text-right text-slate-900 border border-slate-200">
                                                 {formatCurrency(item?.Phí_bay || 0)}
-                                            </td>
-                                            <td className="px-4 py-3 text-right text-slate-900 border border-slate-200">
+                                            </td>}
+                                            {isColVisible('thue_tk') && <td className="px-4 py-3 text-right text-slate-900 border border-slate-200">
                                                 {formatCurrency(item?.Thuê_TK || 0)}
-                                            </td>
-                                            <td className="px-4 py-3 text-right text-slate-900 border border-slate-200">
+                                            </td>}
+                                            {isColVisible('tien_hang') && <td className="px-4 py-3 text-right text-slate-900 border border-slate-200">
                                                 {formatCurrency(item?.Tiền_Hàng || 0)}
-                                            </td>
-                                            <td className="px-4 py-3 text-right text-slate-900 border border-slate-200">
+                                            </td>}
+                                            {isColVisible('ship') && <td className="px-4 py-3 text-right text-slate-900 border border-slate-200">
                                                 {formatCurrency(item?.Phí_ship || 0)}
-                                            </td>
-                                            <td className="px-4 py-3 text-right text-slate-900 border border-slate-200">
+                                            </td>}
+                                            {isColVisible('doi_soat') && <td className="px-4 py-3 text-right text-slate-900 border border-slate-200">
                                                 {formatCurrency(item?.Tiền_Việt_đã_đối_soát || 0)}
-                                            </td>
-                                            <td className="px-4 py-3 text-right text-slate-900 border border-slate-200">
+                                            </td>}
+                                            {isColVisible('kt_xac_nhan') && <td className="px-4 py-3 text-right text-slate-900 border border-slate-200">
                                                 {item?.Kế_toán_xác_nhận_thu_tiền_về || '-'}
-                                            </td>
-                                            <td className="px-4 py-3 text-right font-medium text-slate-900 border border-slate-200">
+                                            </td>}
+                                            {isColVisible('tong_tien') && <td className="px-4 py-3 text-right font-medium text-slate-900 border border-slate-200">
                                                 {formatCurrency(item?.Tổng_tiền_VNĐ || 0)}
-                                            </td>
-                                            <td className="px-4 py-3 text-center border border-slate-200">
+                                            </td>}
+                                            {isColVisible('trang_thai_nb') && <td className="px-4 py-3 text-slate-900 border border-slate-200">{item?.Trạng_thái_giao_hàng_NB || '-'}</td>}
+                                            {isColVisible('ghi_chu') && <td className="px-4 py-3 text-slate-900 border border-slate-200 max-w-[200px] truncate" title={item?.Ghi_chú}>{item?.Ghi_chú || '-'}</td>}
+                                            {isColVisible('hinh_thuc_tt') && <td className="px-4 py-3 text-slate-900 border border-slate-200">{item?.Hình_thức_thanh_toán || '-'}</td>}
+                                            {isColVisible('ket_qua_check') && <td className="px-4 py-3 text-slate-900 border border-slate-200">{item?.Kết_quả_Check || '-'}</td>}
+                                            {isColVisible('ly_do') && <td className="px-4 py-3 text-slate-900 border border-slate-200">{item?.Lý_do || '-'}</td>}
+                                            {isColVisible('ma_tracking') && <td className="px-4 py-3 text-slate-900 border border-slate-200">{item?.Mã_Tracking || '-'}</td>}
+                                            {isColVisible('nv_van_don') && <td className="px-4 py-3 text-slate-900 border border-slate-200">{item?.NV_Vận_đơn || '-'}</td>}
+                                            {isColVisible('nv_marketing') && <td className="px-4 py-3 text-slate-900 border border-slate-200">{item?.Nhân_viên_Marketing || '-'}</td>}
+                                            {isColVisible('thoi_gian_cutoff') && <td className="px-4 py-3 text-slate-900 border border-slate-200">{item?.Thời_gian_cutoff || '-'}</td>}
+                                            {isColVisible('trang_thai_thu_tien') && <td className="px-4 py-3 text-slate-900 border border-slate-200">{item?.Trạng_thái_thu_tiền || '-'}</td>}
+                                            {isColVisible('dv_van_chuyen') && <td className="px-4 py-3 text-slate-900 border border-slate-200">{item?.Đơn_vị_vận_chuyển || '-'}</td>}
+
+                                            {isColVisible('thao_tac') && <td className="px-4 py-3 text-center border border-slate-200 sticky right-0 z-20 bg-white group-hover:bg-slate-50">
                                                 <div className="flex items-center justify-center gap-2">
                                                     <button
                                                         className="text-blue-500 hover:text-blue-700"
@@ -628,7 +761,7 @@ export const DatasheetF3: React.FC = () => {
                                                         <Edit size={16} />
                                                     </button>
                                                 </div>
-                                            </td>
+                                            </td>}
                                         </tr>
                                     );
                                 })}
