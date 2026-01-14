@@ -35,10 +35,11 @@ const COLUMN_DEFS = [
     { id: 'state', label: 'State' },
     { id: 'zipcode', label: 'Zipcode' },
     { id: 'team', label: 'Chi nhánh (Team)' },
-    { id: 'phi_chung', label: 'Phí Chung' },
-    { id: 'phi_bay', label: 'Phí Bay' },
-    { id: 'thue_tk', label: 'Thuê TK' },
-    { id: 'tien_hang', label: 'Tiền Hàng' },
+    { id: 'phi_ffm', label: 'Phí FFM' },
+    { id: 'phi_chung', label: 'Chi phí chung' },
+    { id: 'phi_bay', label: 'Phí bay' },
+    { id: 'thue_tk', label: 'Phí thuê TK' },
+    { id: 'tien_hang', label: 'Tiền hàng' },
     { id: 'ship', label: 'Ship' },
     { id: 'doi_soat', label: 'Tiền đã đối soát' },
     { id: 'kt_xac_nhan', label: 'KT xác nhận' },
@@ -106,8 +107,17 @@ export const DatasheetF3: React.FC = () => {
     const isColVisible = (id: string) => visibleColumns.includes(id);
 
     // Filters
-    const [fromDate, setFromDate] = useState('');
-    const [toDate, setToDate] = useState('');
+    const getToday = () => new Date().toISOString().split('T')[0];
+    const getYesterday = () => {
+        const d = new Date();
+        d.setDate(d.getDate() - 1);
+        return d.toISOString().split('T')[0];
+    };
+
+    const [fromDate, setFromDate] = useState(getYesterday());
+    const [toDate, setToDate] = useState(getToday());
+    const debouncedFromDate = useDebounce(fromDate, 500);
+    const debouncedToDate = useDebounce(toDate, 500);
     const [selectedMarket, setSelectedMarket] = useState('');
     const [selectedProduct, setSelectedProduct] = useState('');
     const [selectedTeam, setSelectedTeam] = useState('');
@@ -151,26 +161,52 @@ export const DatasheetF3: React.FC = () => {
     });
     const [isSavingRates, setIsSavingRates] = useState(false);
 
-    const fetchData = async (useCache = true) => {
-        // Try to load from cache first
-        if (useCache) {
-            const cachedData = sessionStorage.getItem('f3_data_cache_enhanced');
-            const cachedRates = sessionStorage.getItem('exchange_rates_cache');
-
-            if (cachedData && cachedRates) {
-                setData(JSON.parse(cachedData));
-                setExchangeRates(JSON.parse(cachedRates));
-                setLoading(false);
-            } else {
-                setLoading(true);
+    // Helper to format date for input (YYYY-MM-DD)
+    const formatDateForInput = (dateStr?: string) => {
+        if (!dateStr) return '';
+        try {
+            // Handle ISO string
+            if (dateStr.includes('T')) {
+                return dateStr.split('T')[0];
             }
-        } else {
-            setLoading(true);
+            // Handle DD/MM/YYYY
+            if (dateStr.includes('/')) {
+                const parts = dateStr.split('/');
+                if (parts.length === 3) {
+                    // Assuming DD/MM/YYYY or M/D/YYYY
+                    const day = parts[0].padStart(2, '0');
+                    const month = parts[1].padStart(2, '0');
+                    const year = parts[2];
+                    return `${year}-${month}-${day}`;
+                }
+            }
+            // Fallback: try Date object
+            const d = new Date(dateStr);
+            if (!isNaN(d.getTime())) {
+                return d.toISOString().split('T')[0];
+            }
+        } catch (e) {
+            console.warn('Error formatting date:', dateStr, e);
         }
+        return '';
+    };
+
+    const fetchData = async (useCache = true) => {
+        // Cache removed due to QuotaExceededError
+        setLoading(true);
 
         try {
+            let f3Url = 'https://lumi-6dff7-default-rtdb.asia-southeast1.firebasedatabase.app/datasheet/F3.json';
+
+            // Add Date Filtering Query Params
+            if (fromDate || toDate) {
+                f3Url += `?orderBy="Ngày_lên_đơn"`; // Requires Index on Firebase
+                if (fromDate) f3Url += `&startAt="${fromDate}"`;
+                if (toDate) f3Url += `&endAt="${toDate}\uf8ff"`;
+            }
+
             const [f3Res, ratesRes] = await Promise.all([
-                fetch('https://lumi-6dff7-default-rtdb.asia-southeast1.firebasedatabase.app/datasheet/F3.json'),
+                fetch(f3Url),
                 fetch('https://lumi-6dff7-default-rtdb.asia-southeast1.firebasedatabase.app/settings/exchange_rates.json')
             ]);
 
@@ -189,15 +225,12 @@ export const DatasheetF3: React.FC = () => {
                 enhancedData.sort((a, b) => (b._timestamp || 0) - (a._timestamp || 0));
 
                 setData(enhancedData);
-                sessionStorage.setItem('f3_data_cache_enhanced', JSON.stringify(enhancedData));
             } else {
                 setData([]);
-                sessionStorage.removeItem('f3_data_cache_enhanced');
             }
 
             if (ratesJson) {
                 setExchangeRates(ratesJson);
-                sessionStorage.setItem('exchange_rates_cache', JSON.stringify(ratesJson));
             }
 
         } catch (error) {
@@ -215,7 +248,6 @@ export const DatasheetF3: React.FC = () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(exchangeRates)
             });
-            sessionStorage.setItem('exchange_rates_cache', JSON.stringify(exchangeRates));
             alert('Đã lưu tỷ giá thành công!');
         } catch (error) {
             console.error('Error saving rates:', error);
@@ -233,20 +265,31 @@ export const DatasheetF3: React.FC = () => {
         if (!editingItem) return;
 
         try {
-            // 1. Update Firebase if 'id' exists
-            if (editingItem.id) {
-                // Remove internal fields before sending
-                const { id, _searchStr, _timestamp, ...updateData } = editingItem;
-                await fetch(`https://lumi-6dff7-default-rtdb.asia-southeast1.firebasedatabase.app/datasheet/F3/${editingItem.id}.json`, {
+            // 1. Update/Create in Firebase
+            let newId = editingItem.id;
+            const { id, _searchStr, _timestamp, ...updateData } = editingItem;
+
+            if (id) {
+                // Update existing
+                await fetch(`https://lumi-6dff7-default-rtdb.asia-southeast1.firebasedatabase.app/datasheet/F3/${id}.json`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(updateData)
                 });
+            } else {
+                // Create new
+                const res = await fetch(`https://lumi-6dff7-default-rtdb.asia-southeast1.firebasedatabase.app/datasheet/F3.json`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(updateData)
+                });
+                const resData = await res.json();
+                newId = resData.name;
             }
 
             // 2. Update local state
             const newData = data.map(item =>
-                item.Mã_đơn_hàng === editingItem.Mã_đơn_hàng ? editingItem : item
+                item.Mã_đơn_hàng === editingItem.Mã_đơn_hàng ? { ...editingItem, id: newId } : item
             );
 
             // Re-process to update search string and timestamp if changed
@@ -255,7 +298,7 @@ export const DatasheetF3: React.FC = () => {
             processedNewData.sort((a, b) => (b._timestamp || 0) - (a._timestamp || 0));
 
             setData(processedNewData);
-            sessionStorage.setItem('f3_data_cache_enhanced', JSON.stringify(processedNewData));
+            // sessionStorage removed
 
             setEditingItem(null);
             alert("Đã cập nhật đơn hàng thành công!");
@@ -265,6 +308,53 @@ export const DatasheetF3: React.FC = () => {
             alert("Lỗi khi cập nhật đơn hàng.");
         }
     };
+
+    const handleSaveAll = async () => {
+        const newItems = data.filter(item => !item.id);
+        if (newItems.length === 0) {
+            alert("Không có dữ liệu mới cần lưu!");
+            return;
+        }
+
+        if (!confirm(`Bạn có chắc muốn lưu ${newItems.length} đơn hàng mới vào hệ thống?`)) return;
+
+        setIsSaving(true);
+        try {
+            let savedCount = 0;
+            const updatedData = [...data];
+
+            // Process in chunks to avoid overwhelming calls if many
+            // Using a simple loop for clarity
+            for (const item of newItems) {
+                const { id, _searchStr, _timestamp, ...postData } = item;
+                const res = await fetch(`https://lumi-6dff7-default-rtdb.asia-southeast1.firebasedatabase.app/datasheet/F3.json`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(postData)
+                });
+                const resData = await res.json();
+
+                // Update local item with new ID
+                const index = updatedData.findIndex(d => d.Mã_đơn_hàng === item.Mã_đơn_hàng);
+                if (index !== -1) {
+                    updatedData[index] = { ...updatedData[index], id: resData.name };
+                }
+                savedCount++;
+            }
+
+            setData(updatedData);
+            // sessionStorage removed
+            alert(`Đã lưu thành công ${savedCount} đơn hàng mới!`);
+
+        } catch (error) {
+            console.error("Save All Error:", error);
+            alert("Có lỗi xảy ra khi lưu dữ liệu.");
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+
 
     const handleImportClick = () => {
         fileInputRef.current?.click();
@@ -296,9 +386,10 @@ export const DatasheetF3: React.FC = () => {
                         State: row['State'] || row['Bang'] || '',
                         Zipcode: row['Zipcode'] || '',
                         Tiền_Hàng: Number(row['Tiền Hàng'] || row['Tiền_Hàng'] || 0),
-                        Phí_Chung: Number(row['Phí Chung'] || row['Phí_Chung'] || 0),
-                        Phí_bay: Number(row['Phí Bay'] || row['Phí_bay'] || 0),
-                        Thuê_TK: Number(row['Thuê TK'] || row['Thuê_TK'] || 0),
+                        Phí_FFM: Number(row['Phí FFM'] || row['Phí_FFM'] || 0),
+                        Phí_Chung: Number(row['Chi phí chung'] || row['Phí Chung'] || row['Phí_Chung'] || 0),
+                        Phí_bay: Number(row['Phí bay'] || row['Phí Bay'] || row['Phí_bay'] || 0),
+                        Thuê_TK: Number(row['Phí thuê TK'] || row['Thuê TK'] || row['Thuê_TK'] || 0),
                         Phí_ship: Number(row['Ship'] || row['Phí_ship'] || 0),
                         Tiền_Việt_đã_đối_soát: Number(row['Tiền đã đối soát'] || row['Tiền_Việt_đã_đối_soát'] || 0),
                         Kế_toán_xác_nhận_thu_tiền_về: row['KT xác nhận'] || row['Kế_toán_xác_nhận_thu_tiền_về'] || '',
@@ -353,7 +444,7 @@ export const DatasheetF3: React.FC = () => {
                 finalEnhancedData.sort((a, b) => (b._timestamp || 0) - (a._timestamp || 0));
 
                 setData(finalEnhancedData);
-                sessionStorage.setItem('f3_data_cache_enhanced', JSON.stringify(finalEnhancedData));
+                // sessionStorage removed
                 alert(`Đã import thành công!\n- Thêm mới: ${newCount} đơn\n- Cập nhật: ${updateCount} đơn\n\nLƯU Ý: Vui lòng nhấn nút "Lưu dữ liệu" để ghi lại các thay đổi lên hệ thống.`);
 
             } catch (error) {
@@ -375,7 +466,14 @@ export const DatasheetF3: React.FC = () => {
 
     useEffect(() => {
         fetchData(true); // Load with cache strategy on mount
-    }, []);
+    }, []); // Run once on mount
+
+    // Re-fetch when dates change (debounced)
+    useEffect(() => {
+        // Avoid double fetch on mount by checking if it's the initial render (optional, but fetchData handles it)
+        // Here we just accept one potential extra call or rely on the fact that initial state matches
+        fetchData(false);
+    }, [debouncedFromDate, debouncedToDate]);
 
     const handleRefresh = () => {
         fetchData(false); // Force hard refresh
@@ -523,6 +621,13 @@ export const DatasheetF3: React.FC = () => {
                                 <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> Làm mới
                             </button>
                             <button
+                                onClick={handleSaveAll}
+                                disabled={isSaving}
+                                className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-medium disabled:opacity-50"
+                            >
+                                <Save size={16} className={isSaving ? 'animate-spin' : ''} /> Lưu dữ liệu
+                            </button>
+                            <button
                                 onClick={handleImportClick}
                                 className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
                             >
@@ -537,6 +642,7 @@ export const DatasheetF3: React.FC = () => {
 
                             {/* Column Settings Button */}
                             <div className="relative" ref={settingsRef}>
+
                                 <button
                                     onClick={() => setShowColumnSettings(!showColumnSettings)}
                                     className="flex items-center gap-2 px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors text-sm font-medium"
@@ -708,6 +814,9 @@ export const DatasheetF3: React.FC = () => {
                                             {isColVisible('state') && <td className="px-4 py-3 text-slate-900 border border-slate-200">{item?.State || '-'}</td>}
                                             {isColVisible('zipcode') && <td className="px-4 py-3 text-slate-900 border border-slate-200">{item?.Zipcode || '-'}</td>}
                                             {isColVisible('team') && <td className="px-4 py-3 text-slate-900 border border-slate-200">{item?.Team || '-'}</td>}
+                                            {isColVisible('phi_ffm') && <td className="px-4 py-3 text-right text-slate-900 border border-slate-200">
+                                                {formatCurrency(item?.Phí_FFM || 0)}
+                                            </td>}
                                             {isColVisible('phi_chung') && <td className="px-4 py-3 text-right text-slate-900 border border-slate-200">
                                                 {formatCurrency(item?.Phí_Chung || 0)}
                                             </td>}
@@ -857,7 +966,7 @@ export const DatasheetF3: React.FC = () => {
                                 <label className="text-xs font-semibold text-slate-500">Ngày lên đơn</label>
                                 <input
                                     type="date"
-                                    value={editingItem.Ngày_lên_đơn ? editingItem.Ngày_lên_đơn.split('T')[0] : ''}
+                                    value={formatDateForInput(editingItem.Ngày_lên_đơn)}
                                     onChange={(e) => setEditingItem({ ...editingItem, Ngày_lên_đơn: e.target.value })}
                                     className="border border-slate-300 rounded px-2 py-1.5"
                                 />
@@ -895,7 +1004,7 @@ export const DatasheetF3: React.FC = () => {
                                 <label className="text-xs font-semibold text-slate-500">Tổng tiền VNĐ</label>
                                 <input
                                     type="number"
-                                    value={editingItem.Tổng_tiền_VNĐ || 0}
+                                    value={Number(editingItem.Tổng_tiền_VNĐ) || 0}
                                     onChange={(e) => setEditingItem({ ...editingItem, Tổng_tiền_VNĐ: Number(e.target.value) })}
                                     className="border border-slate-300 rounded px-2 py-1.5"
                                 />

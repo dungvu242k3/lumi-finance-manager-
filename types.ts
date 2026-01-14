@@ -90,6 +90,7 @@ export interface F3Data {
   Trạng_thái_giao_hàng_NB: string;
   Trạng_thái_thu_tiền: string;
   Tổng_tiền_VNĐ: number;
+  Phí_FFM?: number;
   Zipcode: string;
   Đơn_vị_vận_chuyển: string;
 }
