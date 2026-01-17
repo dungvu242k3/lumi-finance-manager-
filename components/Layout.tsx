@@ -30,10 +30,10 @@ const Sidebar = ({ isOpen, setIsOpen }: SidebarProps) => {
       )}
 
       {/* Sidebar chính */}
-      <div className={`fixed inset-y-0 left-0 z-50 w-64 bg-slate-900 text-white transform transition-transform duration-300 ease-in-out ${isOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 md:static md:inset-0 shadow-xl flex flex-col`}>
+      <div className={`fixed inset-y-0 left-0 z-50 w-64 bg-[#00A651] text-white transform transition-transform duration-300 ease-in-out ${isOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 md:static md:inset-0 shadow-xl flex flex-col`}>
         {/* Header của Sidebar */}
-        <div className="flex items-center justify-between h-16 px-6 bg-slate-950 shrink-0">
-          <span className="text-xl font-bold tracking-wider text-blue-400">LUMI<span className="text-white">FINANCE</span></span>
+        <div className="flex items-center justify-between h-16 px-6 bg-[#008f45] shrink-0 shadow-sm">
+          <span className="text-xl font-bold tracking-wider text-white">LUMI<span className="text-green-100">FINANCE</span></span>
           <button className="md:hidden text-slate-400 hover:text-white" onClick={() => setIsOpen(false)}>
             <X size={24} />
           </button>
@@ -41,7 +41,7 @@ const Sidebar = ({ isOpen, setIsOpen }: SidebarProps) => {
 
         {/* Danh sách Menu */}
         <div className="flex-1 px-4 py-6 space-y-2 overflow-y-auto custom-scrollbar">
-          <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4 px-2">Menu Chính</div>
+          <div className="text-xs font-semibold text-green-100 uppercase tracking-wider mb-4 px-2 opacity-80">Menu Chính</div>
           {navItems.map((item) => (
             <NavLink
               key={item.path}
@@ -50,8 +50,8 @@ const Sidebar = ({ isOpen, setIsOpen }: SidebarProps) => {
               end={item.path === '/'} // Chỉ active chính xác khi ở trang chủ
               className={({ isActive }) =>
                 `flex items-center px-4 py-3 rounded-lg transition-all duration-200 group ${isActive
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20'
-                  : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                  ? 'bg-white text-[#00A651] shadow-md transform scale-105'
+                  : 'text-green-50 hover:bg-[#008f45] hover:text-white'
                 }`
               }
             >
@@ -62,14 +62,14 @@ const Sidebar = ({ isOpen, setIsOpen }: SidebarProps) => {
         </div>
 
         {/* Footer của Sidebar (User Info) */}
-        <div className="p-4 bg-slate-950 shrink-0 border-t border-slate-800">
+        <div className="p-4 bg-[#008f45] shrink-0 border-t border-green-500/30">
           <div className="flex items-center gap-3 px-2">
-            <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-blue-500 to-blue-400 flex items-center justify-center text-white font-bold shadow-md">
+            <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center text-[#00A651] font-bold shadow-sm">
               A
             </div>
             <div className="overflow-hidden">
               <p className="text-sm font-medium text-white truncate">Admin User</p>
-              <p className="text-xs text-slate-400 truncate">Ban Giám Đốc</p>
+              <p className="text-xs text-green-100 truncate">Ban Giám Đốc</p>
             </div>
           </div>
         </div>
@@ -98,7 +98,7 @@ export const Layout = () => {
   };
 
   return (
-    <div className="flex h-screen overflow-hidden bg-gray-50 text-slate-800">
+    <div className="flex h-screen overflow-hidden bg-green-50/30 text-slate-800">
       <Sidebar isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} />
 
       {/* Main Content Wrapper */}
@@ -117,19 +117,19 @@ export const Layout = () => {
           </div>
 
           <div className="flex items-center space-x-3 sm:space-x-4">
-            <button className="p-2 text-slate-500 hover:bg-slate-100 hover:text-blue-600 rounded-full relative transition-colors">
+            <button className="p-2 text-slate-500 hover:bg-slate-100 hover:text-[#00A651] rounded-full relative transition-colors">
               <Bell size={20} />
               <span className="absolute top-1.5 right-2 w-2 h-2 bg-red-500 rounded-full ring-2 ring-white"></span>
             </button>
             <div className="h-6 w-px bg-slate-200 mx-2 hidden sm:block"></div>
-            <button className="flex items-center space-x-2 text-slate-600 hover:text-blue-600 p-1 rounded-full hover:bg-slate-50 transition-colors">
+            <button className="flex items-center space-x-2 text-slate-600 hover:text-[#00A651] p-1 rounded-full hover:bg-slate-50 transition-colors">
               <UserCircle size={24} />
             </button>
           </div>
         </header>
 
         {/* Page Content */}
-        <main className="flex-1 overflow-y-auto bg-gray-50 p-4 sm:p-6 lg:p-8 custom-scrollbar">
+        <main className="flex-1 overflow-y-auto bg-green-50/30 p-4 sm:p-6 lg:p-8 custom-scrollbar">
           <div className="max-w-7xl mx-auto min-h-full">
             <Outlet />
           </div>
