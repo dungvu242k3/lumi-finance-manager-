@@ -108,13 +108,13 @@ export const DatasheetF3: React.FC = () => {
 
     // Filters
     const getToday = () => new Date().toISOString().split('T')[0];
-    const getYesterday = () => {
+    const getTwoDaysAgo = () => {
         const d = new Date();
-        d.setDate(d.getDate() - 1);
+        d.setDate(d.getDate() - 2);
         return d.toISOString().split('T')[0];
     };
 
-    const [fromDate, setFromDate] = useState(getYesterday());
+    const [fromDate, setFromDate] = useState(getTwoDaysAgo());
     const [toDate, setToDate] = useState(getToday());
     const debouncedFromDate = useDebounce(fromDate, 500);
     const debouncedToDate = useDebounce(toDate, 500);
@@ -138,11 +138,34 @@ export const DatasheetF3: React.FC = () => {
         return Array.from(teams).sort();
     }, [data]);
 
+    // Helper: Parse any date format to timestamp
+    const parseSmartDate = (dateStr: string | undefined): number => {
+        if (!dateStr) return 0;
+
+        let d = new Date(dateStr);
+        if (!isNaN(d.getTime())) return d.getTime();
+
+        // Handle DD/MM/YYYY or M/D/YYYY
+        // We will assume M/D/YYYY if primary check fails
+        if (dateStr.includes('/')) {
+            const parts = dateStr.split('/');
+            if (parts.length === 3) {
+                // Try M/D/YYYY first (US format common in spreadsheets/system exports)
+                const m = parseInt(parts[0], 10) - 1;
+                const day = parseInt(parts[1], 10);
+                const year = parseInt(parts[2], 10);
+                d = new Date(year, m, day);
+                if (!isNaN(d.getTime())) return d.getTime();
+            }
+        }
+        return 0;
+    };
+
     // Helper to process raw data into enhanced data
     const processRawData = (rawData: (F3Data & { id?: string })[]): F3DataEnhanced[] => {
         return rawData.map(item => ({
             ...item,
-            _timestamp: item.Ngày_lên_đơn ? new Date(item.Ngày_lên_đơn).getTime() : 0,
+            _timestamp: parseSmartDate(item.Ngày_lên_đơn), // Use smart parser
             _searchStr: normalizeString(`
                 ${item.Mã_đơn_hàng || ""}
                 ${item.City || ""} ${item.State || ""}
@@ -198,15 +221,23 @@ export const DatasheetF3: React.FC = () => {
         try {
             let f3Url = 'https://lumi-6dff7-default-rtdb.asia-southeast1.firebasedatabase.app/datasheet/F3.json';
 
-            // Add Date Filtering Query Params
-            if (fromDate || toDate) {
-                f3Url += `?orderBy="Ngày_lên_đơn"`; // Requires Index on Firebase
-                if (fromDate) f3Url += `&startAt="${fromDate}"`;
-                if (toDate) f3Url += `&endAt="${toDate}\uf8ff"`;
-            }
+            const fetchF3Data = async () => {
+                // ALWAYS fetch the last 2000 items to ensure we have recent data for client-side filtering
+                // We cannot rely on server-side filtering because of inconsistent date formats in DB
+                const url = `${f3Url}?orderBy="$key"&limitToLast=2000`;
+
+                try {
+                    const res = await fetch(url);
+                    if (res.ok) return res;
+                    throw new Error('Request failed');
+                } catch (e) {
+                    console.warn('Fetch failed', e);
+                    return null;
+                }
+            };
 
             const [f3Res, ratesRes] = await Promise.all([
-                fetch(f3Url),
+                fetchF3Data(),
                 fetch('https://lumi-6dff7-default-rtdb.asia-southeast1.firebasedatabase.app/settings/exchange_rates.json')
             ]);
 
@@ -568,6 +599,16 @@ export const DatasheetF3: React.FC = () => {
         XLSX.writeFile(wb, `F3_Data_${new Date().toISOString().split('T')[0]}.xlsx`);
     };
 
+    const formatDateDisplay = (timestamp?: number) => {
+        if (!timestamp) return '-';
+        const d = new Date(timestamp);
+        if (isNaN(d.getTime())) return '-';
+        const day = d.getDate().toString().padStart(2, '0');
+        const month = (d.getMonth() + 1).toString().padStart(2, '0');
+        const year = d.getFullYear();
+        return `${day}/${month}/${year}`;
+    };
+
     return (
         <div className="space-y-6">
             <div className="flex flex-col md:flex-row gap-6">
@@ -804,7 +845,7 @@ export const DatasheetF3: React.FC = () => {
                                         <tr key={item?.Mã_đơn_hàng || index} className="hover:bg-slate-50 group">
                                             {isColVisible('stt') && <td className="px-4 py-3 text-center border border-slate-200 text-slate-900 font-medium sticky left-0 z-20 bg-white group-hover:bg-slate-50">{actualIndex}</td>}
                                             {isColVisible('ma_don_hang') && <td className="px-4 py-3 font-medium text-slate-900 border border-slate-200 sticky left-[60px] z-20 bg-white group-hover:bg-slate-50">{item?.Mã_đơn_hàng || '-'}</td>}
-                                            {isColVisible('ngay_len_don') && <td className="px-4 py-3 text-slate-900 border border-slate-200 whitespace-nowrap">{item?.Ngày_lên_đơn ? item.Ngày_lên_đơn.split('T')[0] : '-'}</td>}
+                                            {isColVisible('ngay_len_don') && <td className="px-4 py-3 text-slate-900 border border-slate-200 whitespace-nowrap">{formatDateDisplay(item?._timestamp)}</td>}
                                             {isColVisible('mat_hang') && <td className="px-4 py-3 text-slate-900 border border-slate-200">{item?.Mặt_hàng || '-'}</td>}
                                             {isColVisible('name') && <td className="px-4 py-3 text-slate-900 border border-slate-200">{item?.Name || '-'}</td>}
                                             {isColVisible('khu_vuc') && <td className="px-4 py-3 text-slate-900 border border-slate-200">
