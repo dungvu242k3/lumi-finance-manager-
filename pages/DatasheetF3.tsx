@@ -1,5 +1,5 @@
 import { Download, Edit, Eye, RefreshCw, Save, Search, Settings, Upload, X } from 'lucide-react';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { ExchangeRates, F3Data } from '../types';
 
@@ -65,6 +65,9 @@ const normalizeString = (str: string) => {
     return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 };
 
+// Cached NumberFormat instance — avoid re-creating on every render
+const currencyFormatter = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 });
+
 export const DatasheetF3: React.FC = () => {
     const [data, setData] = useState<F3DataEnhanced[]>([]);
     const [loading, setLoading] = useState(true);
@@ -82,6 +85,16 @@ export const DatasheetF3: React.FC = () => {
     // Selection State
     const [selection, setSelection] = useState<{ start: { r: number, c: number }, end: { r: number, c: number } } | null>(null);
     const isSelecting = useRef(false);
+
+    // Refs for event handler data access (avoid re-registering listeners on every data change)
+    const dataRef = useRef(data);
+    const selectionRef = useRef(selection);
+    const editingCellRef = useRef(editingCell);
+    const processedDataRef = useRef<F3DataEnhanced[]>([]);
+    const paginatedDataRef = useRef<F3DataEnhanced[]>([]);
+    const visibleColumnDefsRef = useRef(COLUMN_DEFS);
+    const currentPageRef = useRef(currentPage);
+    const itemsPerPageRef = useRef(itemsPerPage);
 
 
     // Column Settings State
@@ -655,27 +668,29 @@ export const DatasheetF3: React.FC = () => {
         fetchData(false); // Force hard refresh
     };
 
-    const formatCurrency = (amount: number) => {
-        return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 }).format(amount);
-    };
+    const formatCurrency = useCallback((amount: number) => {
+        return currencyFormatter.format(amount);
+    }, []);
 
     const normalizeString = (str: string) => {
         return str ? str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase() : "";
     };
 
     // 4. Excel-like Copy/Paste & Edit Logic
-    const handleCellChange = (id: string, field: keyof F3Data, value: string) => {
-        // Remove non-numeric characters except dot/minus if needed, but usually just raw input
-        const rawValue = value.replace(/[^0-9.-]/g, '');
-        const numValue = parseFloat(rawValue);
+    const handleCellChange = useCallback((id: string, field: keyof F3Data, value: string) => {
+        // Strip everything except digits and minus sign (dots are thousands separators in VN format)
+        const rawValue = value.replace(/[^0-9-]/g, '');
+        const numValue = parseInt(rawValue, 10);
+        const finalValue = isNaN(numValue) ? 0 : numValue;
 
-        setData(prev => prev.map(item => {
-            if (item.id === id) {
-                return { ...item, [field]: isNaN(numValue) ? 0 : numValue };
-            }
-            return item;
-        }));
-    };
+        setData(prev => {
+            const idx = prev.findIndex(item => item.id === id);
+            if (idx === -1) return prev;
+            const newData = [...prev];
+            newData[idx] = { ...newData[idx], [field]: finalValue };
+            return newData;
+        });
+    }, []);
 
     const handlePaste = (e: React.ClipboardEvent<HTMLDivElement> | React.ClipboardEvent<HTMLInputElement>, id: string, startColId: string) => {
         e.preventDefault();
@@ -788,29 +803,55 @@ export const DatasheetF3: React.FC = () => {
         return processedData.slice(start, start + itemsPerPage);
     }, [processedData, currentPage]);
 
-    // Global Key Handler for Copy
+    // Sync refs with latest state for use in stable event handlers
+    useEffect(() => {
+        dataRef.current = data;
+    }, [data]);
+    useEffect(() => {
+        selectionRef.current = selection;
+    }, [selection]);
+    useEffect(() => {
+        editingCellRef.current = editingCell;
+    }, [editingCell]);
+    useEffect(() => {
+        processedDataRef.current = processedData;
+    }, [processedData]);
+    useEffect(() => {
+        paginatedDataRef.current = paginatedData;
+    }, [paginatedData]);
+    useEffect(() => {
+        visibleColumnDefsRef.current = visibleColumnDefs;
+    }, [visibleColumnDefs]);
+    useEffect(() => {
+        currentPageRef.current = currentPage;
+    }, [currentPage]);
+
+    // Global Key + Paste Handler (registered ONCE, uses refs for latest data)
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             if (e.ctrlKey && (e.key === 'c' || e.key === 'C')) {
-                // If we have a selection and NOT editing a cell
-                if (selection && !editingCell) {
+                const sel = selectionRef.current;
+                if (sel && !editingCellRef.current) {
                     e.preventDefault();
 
-                    const startR = Math.min(selection.start.r, selection.end.r);
-                    const endR = Math.max(selection.start.r, selection.end.r);
-                    const startC = Math.min(selection.start.c, selection.end.c);
-                    const endC = Math.max(selection.start.c, selection.end.c);
+                    const startR = Math.min(sel.start.r, sel.end.r);
+                    const endR = Math.max(sel.start.r, sel.end.r);
+                    const startC = Math.min(sel.start.c, sel.end.c);
+                    const endC = Math.max(sel.start.c, sel.end.c);
+                    const cols = visibleColumnDefsRef.current;
+                    const pageData = paginatedDataRef.current;
+                    const page = currentPageRef.current;
+                    const perPage = itemsPerPageRef.current;
 
                     const rows = [];
                     for (let r = startR; r <= endR; r++) {
                         const rowData = [];
                         for (let c = startC; c <= endC; c++) {
-                            const colId = visibleColumnDefs[c].id;
-                            const item = paginatedData[r];
+                            const colId = cols[c].id;
+                            const item = pageData[r];
                             let value = '';
 
-                            // Extract value based on column ID
-                            if (colId === 'stt') value = ((currentPage - 1) * itemsPerPage + r + 1).toString();
+                            if (colId === 'stt') value = ((page - 1) * perPage + r + 1).toString();
                             else if (colId === 'ma_don_hang') value = item?.Mã_đơn_hàng || '';
                             else if (colId === 'ngay_len_don') value = formatDateDisplay(item?._timestamp);
                             else if (colId === 'mat_hang') value = item?.Mặt_hàng || '';
@@ -821,7 +862,7 @@ export const DatasheetF3: React.FC = () => {
                                     'doi_soat': 'Tiền_Việt_đã_đối_soát', 'tong_tien': 'Tổng_tiền_VNĐ'
                                 };
                                 const field = fieldMap[colId];
-                                if (field) value = formatCurrency(item?.[field] as number || 0).replace('₫', '').trim();
+                                if (field) value = currencyFormatter.format(item?.[field] as number || 0).replace('₫', '').trim();
                                 else value = (item as any)[colId] || '';
                             } else {
                                 value = (item as any)[colId] || '';
@@ -838,13 +879,91 @@ export const DatasheetF3: React.FC = () => {
             }
         };
 
+        // Global Paste Handler
+        const handleGlobalPaste = (e: ClipboardEvent) => {
+            const sel = selectionRef.current;
+            if (!sel || editingCellRef.current) return;
+
+            const target = e.target as HTMLElement;
+            if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
+
+            e.preventDefault();
+            const clipboardData = e.clipboardData?.getData('text/plain');
+            if (!clipboardData) return;
+
+            const rows = clipboardData.split(/\r\n|\n|\r/).filter(row => row.trim() !== '');
+            if (rows.length === 0) return;
+
+            const startR = Math.min(sel.start.r, sel.end.r);
+            const startC = Math.min(sel.start.c, sel.end.c);
+            const cols = visibleColumnDefsRef.current;
+            const procData = processedDataRef.current;
+            const page = currentPageRef.current;
+            const perPage = itemsPerPageRef.current;
+
+            const pageOffset = (page - 1) * perPage;
+            const startRowIndex = pageOffset + startR;
+            const startColIndex = startC;
+
+            if (startRowIndex >= procData.length) return;
+            if (startColIndex >= cols.length) return;
+
+            setData(prevData => {
+                const newData = [...prevData];
+                const dataMap = new Map(newData.map(item => [item.id!, item]));
+
+                rows.forEach((rowVal, rOffset) => {
+                    const targetRowIndex = startRowIndex + rOffset;
+                    if (targetRowIndex >= procData.length) return;
+                    const targetItem = procData[targetRowIndex];
+                    if (!targetItem || !targetItem.id) return;
+
+                    const cells = rowVal.split('\t');
+                    const existing = dataMap.get(targetItem.id)!;
+                    if (!existing) return;
+                    let updatedItem = { ...existing };
+                    let hasChange = false;
+
+                    cells.forEach((cellVal, cOffset) => {
+                        const targetColIndex = startColIndex + cOffset;
+                        if (targetColIndex >= cols.length) return;
+
+                        const colDef = cols[targetColIndex];
+                        if (!colDef.field) return;
+
+                        const isMoney = ['phi_ffm', 'phi_chung', 'phi_bay', 'thue_tk', 'tien_hang', 'ship', 'doi_soat', 'tong_tien'].includes(colDef.id);
+
+                        if (isMoney) {
+                            const rawValue = cellVal.replace(/[^0-9.-]/g, '');
+                            const numValue = parseFloat(rawValue);
+                            if (!isNaN(numValue)) {
+                                updatedItem = { ...updatedItem, [colDef.field]: numValue };
+                                hasChange = true;
+                            }
+                        } else {
+                            updatedItem = { ...updatedItem, [colDef.field]: cellVal.trim() };
+                            hasChange = true;
+                        }
+                    });
+
+                    if (hasChange) {
+                        dataMap.set(targetItem.id, updatedItem);
+                    }
+                });
+
+                return Array.from(dataMap.values());
+            });
+        };
+
         window.addEventListener('keydown', handleKeyDown);
         window.addEventListener('mouseup', handleMouseUp);
+        document.addEventListener('paste', handleGlobalPaste);
         return () => {
             window.removeEventListener('keydown', handleKeyDown);
             window.removeEventListener('mouseup', handleMouseUp);
+            document.removeEventListener('paste', handleGlobalPaste);
         };
-    }, [selection, editingCell, paginatedData, visibleColumnDefs, currentPage, itemsPerPage]);
+    }, []); // Empty deps — registered once, reads from refs
 
 
     // Reset to page 1 when search changes
@@ -903,7 +1022,7 @@ export const DatasheetF3: React.FC = () => {
                 <input
                     type="text"
                     className="w-full text-right bg-white outline-none ring-2 ring-blue-500 rounded px-1 z-10 relative"
-                    value={formatCurrency(value).replace('₫', '').trim()}
+                    value={value === 0 ? '' : value.toLocaleString('vi-VN')}
                     onChange={(e) => handleCellChange(item.id!, field, e.target.value)}
                     onBlur={() => setEditingCell(null)}
                     onKeyDown={(e) => {
