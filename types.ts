@@ -93,6 +93,8 @@ export interface F3Data {
   Phí_FFM?: number;
   Zipcode: string;
   Đơn_vị_vận_chuyển: string;
+  Sale_Staff?: string; // Nhân viên Sale
+  CSKH?: string; // Nhân viên CSKH
 }
 
 export interface BusinessResultRow {

@@ -1,5 +1,5 @@
 import { Download, Edit, Eye, RefreshCw, Save, Search, Settings, Upload, X } from 'lucide-react';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { ExchangeRates, F3Data } from '../types';
 
@@ -23,40 +23,47 @@ function useDebounce<T>(value: T, delay: number): T {
     return debouncedValue;
 }
 
-// Column Definitions
-const COLUMN_DEFS = [
+// Column Definitions with Field Mapping
+const COLUMN_DEFS: { id: string; label: string; field?: keyof F3Data }[] = [
     { id: 'stt', label: 'STT' },
-    { id: 'ma_don_hang', label: 'Mã đơn hàng' },
-    { id: 'ngay_len_don', label: 'Ngày lên đơn' },
-    { id: 'mat_hang', label: 'Mặt hàng' },
-    { id: 'name', label: 'Tên khách hàng' },
-    { id: 'khu_vuc', label: 'Khu vực' },
-    { id: 'city', label: 'City' },
-    { id: 'state', label: 'State' },
-    { id: 'zipcode', label: 'Zipcode' },
-    { id: 'team', label: 'Chi nhánh (Team)' },
-    { id: 'phi_ffm', label: 'Phí FFM' },
-    { id: 'phi_chung', label: 'Chi phí chung' },
-    { id: 'phi_bay', label: 'Phí bay' },
-    { id: 'thue_tk', label: 'Phí thuê TK' },
-    { id: 'tien_hang', label: 'Tiền hàng' },
-    { id: 'ship', label: 'Ship' },
-    { id: 'doi_soat', label: 'Tiền đã đối soát' },
-    { id: 'kt_xac_nhan', label: 'KT xác nhận' },
-    { id: 'tong_tien', label: 'Tổng tiền VNĐ' },
-    { id: 'trang_thai_nb', label: 'Trạng thái NB' },
-    { id: 'ghi_chu', label: 'Ghi chú' },
-    { id: 'hinh_thuc_tt', label: 'HT thanh toán' },
-    { id: 'ket_qua_check', label: 'Kết quả Check' },
-    { id: 'ly_do', label: 'Lý do' },
-    { id: 'ma_tracking', label: 'Mã Tracking' },
-    { id: 'nv_van_don', label: 'NV Vận đơn' },
-    { id: 'nv_marketing', label: 'NV Marketing' },
-    { id: 'thoi_gian_cutoff', label: 'Time Cutoff' },
-    { id: 'trang_thai_thu_tien', label: 'TT Thu tiền' },
-    { id: 'dv_van_chuyen', label: 'ĐV Vận chuyển' },
+    { id: 'ma_don_hang', label: 'Mã đơn hàng', field: 'Mã_đơn_hàng' },
+    { id: 'ngay_len_don', label: 'Ngày lên đơn', field: 'Ngày_lên_đơn' },
+    { id: 'mat_hang', label: 'Mặt hàng', field: 'Mặt_hàng' },
+    { id: 'name', label: 'Tên khách hàng', field: 'Name' },
+    { id: 'khu_vuc', label: 'Khu vực', field: 'Khu_vực' },
+    { id: 'city', label: 'City', field: 'City' },
+    { id: 'state', label: 'State', field: 'State' },
+    { id: 'zipcode', label: 'Zipcode', field: 'Zipcode' },
+    { id: 'team', label: 'Chi nhánh (Team)', field: 'Team' },
+    { id: 'phi_ffm', label: 'Phí FFM', field: 'Phí_FFM' },
+    { id: 'phi_chung', label: 'Chi phí chung', field: 'Phí_Chung' },
+    { id: 'phi_bay', label: 'Phí bay', field: 'Phí_bay' },
+    { id: 'thue_tk', label: 'Phí thuê TK', field: 'Thuê_TK' },
+    { id: 'tien_hang', label: 'Tiền hàng', field: 'Tiền_Hàng' },
+    { id: 'ship', label: 'Ship', field: 'Phí_ship' },
+    { id: 'doi_soat', label: 'Tiền đã đối soát', field: 'Tiền_Việt_đã_đối_soát' },
+    { id: 'kt_xac_nhan', label: 'KT xác nhận', field: 'Kế_toán_xác_nhận_thu_tiền_về' },
+    { id: 'tong_tien', label: 'Tổng tiền VNĐ', field: 'Tổng_tiền_VNĐ' },
+    { id: 'trang_thai_nb', label: 'Trạng thái NB', field: 'Trạng_thái_giao_hàng_NB' },
+    { id: 'ghi_chu', label: 'Ghi chú', field: 'Ghi_chú' },
+    { id: 'hinh_thuc_tt', label: 'HT thanh toán', field: 'Hình_thức_thanh_toán' },
+    { id: 'ket_qua_check', label: 'Kết quả Check', field: 'Kết_quả_Check' },
+    { id: 'ly_do', label: 'Lý do', field: 'Lý_do' },
+    { id: 'ma_tracking', label: 'Mã Tracking', field: 'Mã_Tracking' },
+    { id: 'nv_van_don', label: 'NV Vận đơn', field: 'NV_Vận_đơn' },
+    { id: 'nv_marketing', label: 'NV Marketing', field: 'Nhân_viên_Marketing' },
+    { id: 'sale_staff', label: 'NV Sale', field: 'Sale_Staff' },
+    { id: 'cskh', label: 'CSKH', field: 'CSKH' },
+    { id: 'thoi_gian_cutoff', label: 'Time Cutoff', field: 'Thời_gian_cutoff' },
+    { id: 'trang_thai_thu_tien', label: 'TT Thu tiền', field: 'Trạng_thái_thu_tiền' },
+    { id: 'dv_van_chuyen', label: 'ĐV Vận chuyển', field: 'Đơn_vị_vận_chuyển' },
     { id: 'thao_tac', label: 'Thao tác' },
 ];
+
+// Helper to remove accents and normalize string for search
+const normalizeString = (str: string) => {
+    return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+};
 
 export const DatasheetF3: React.FC = () => {
     const [data, setData] = useState<F3DataEnhanced[]>([]);
@@ -69,11 +76,21 @@ export const DatasheetF3: React.FC = () => {
     const [editingItem, setEditingItem] = useState<F3DataEnhanced | null>(null);
     const [isSaving, setIsSaving] = useState(false);
 
+    const [editingCell, setEditingCell] = useState<{ id: string, field: keyof F3Data } | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+
+    // Selection State
+    const [selection, setSelection] = useState<{ start: { r: number, c: number }, end: { r: number, c: number } } | null>(null);
+    const isSelecting = useRef(false);
+
 
     // Column Settings State
     const [showColumnSettings, setShowColumnSettings] = useState(false);
     const settingsRef = useRef<HTMLDivElement>(null);
+
+    // ... existing useEffect ...
+
+
 
     // Close settings when clicking outside
     useEffect(() => {
@@ -103,6 +120,28 @@ export const DatasheetF3: React.FC = () => {
             return newCols;
         });
     };
+
+    // Compute visible column definitions
+    const visibleColumnDefs = useMemo(() => {
+        return COLUMN_DEFS.filter(c => visibleColumns.includes(c.id));
+    }, [visibleColumns]);
+
+    // Selection Handlers (Moved here for clarity but logic is independent)
+    const handleMouseDown = (r: number, c: number) => {
+        isSelecting.current = true;
+        setSelection({ start: { r, c }, end: { r, c } });
+    };
+
+    const handleMouseEnter = (r: number, c: number) => {
+        if (isSelecting.current) {
+            setSelection(prev => prev ? { ...prev, end: { r, c } } : null);
+        }
+    };
+
+    const handleMouseUp = () => {
+        isSelecting.current = false;
+    };
+
 
     const isColVisible = (id: string) => visibleColumns.includes(id);
 
@@ -170,6 +209,7 @@ export const DatasheetF3: React.FC = () => {
                 ${item.Mã_đơn_hàng || ""}
                 ${item.City || ""} ${item.State || ""}
                 ${item.Mặt_hàng || ""}
+                ${item.Sale_Staff || ""} ${item.CSKH || ""}
             `)
         }));
     };
@@ -215,43 +255,123 @@ export const DatasheetF3: React.FC = () => {
     };
 
     const fetchData = async (useCache = true) => {
-        // Cache removed due to QuotaExceededError
         setLoading(true);
 
         try {
-            let f3Url = 'https://lumi-6dff7-default-rtdb.asia-southeast1.firebasedatabase.app/datasheet/F3.json';
+            // Update: Switch to Supabase 'orders' table
+            // We use simple fetch with headers for RLS/Auth if needed (Anon key for now)
+            const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+            const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-            const fetchF3Data = async () => {
-                // ALWAYS fetch the last 2000 items to ensure we have recent data for client-side filtering
-                // We cannot rely on server-side filtering because of inconsistent date formats in DB
-                const url = `${f3Url}?orderBy="$key"&limitToLast=2000`;
+            if (!supabaseUrl || !supabaseKey) {
+                console.error("Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY");
+                setLoading(false);
+                return;
+            }
+
+            const fetchOrders = async () => {
+                // Fetch last 2000 items (or more if pagination needed later) using order by created_at desc
+                // Assuming 'created_at' exists, or we use standard select
+                // We'll try to select * to see all columns first
+                const url = `${supabaseUrl}/rest/v1/orders?select=*&limit=2000&order=created_at.desc.nullslast`;
 
                 try {
-                    const res = await fetch(url);
+                    const res = await fetch(url, {
+                        headers: {
+                            'apikey': supabaseKey,
+                            'Authorization': `Bearer ${supabaseKey}`
+                        }
+                    });
                     if (res.ok) return res;
-                    throw new Error('Request failed');
+                    throw new Error(`Request failed: ${res.statusText}`);
                 } catch (e) {
-                    console.warn('Fetch failed', e);
+                    console.error('Fetch orders failed', e);
                     return null;
                 }
             };
 
-            const [f3Res, ratesRes] = await Promise.all([
-                fetchF3Data(),
-                fetch('https://lumi-6dff7-default-rtdb.asia-southeast1.firebasedatabase.app/settings/exchange_rates.json')
+            const fetchRates = async () => {
+                try {
+                    const url = `${supabaseUrl}/rest/v1/exchange_rates?select=*&limit=1`;
+                    const res = await fetch(url, {
+                        headers: {
+                            'apikey': supabaseKey,
+                            'Authorization': `Bearer ${supabaseKey}`
+                        }
+                    });
+                    if (res.ok) return res.json();
+                } catch (e) {
+                    console.error('Fetch rates failed', e);
+                }
+                return null;
+            };
+
+            const [ordersJson, ratesData] = await Promise.all([
+                fetchOrders().then(res => res ? res.json() : null),
+                fetchRates()
             ]);
 
-            const [f3Json, ratesJson] = await Promise.all([
-                f3Res.json(),
-                ratesRes.json()
-            ]);
+            const ratesJson = Array.isArray(ratesData) && ratesData.length > 0 ? ratesData[0] : null;
 
-            if (f3Json) {
-                // Map object keys to 'id' property
-                const rawData = Object.entries(f3Json).map(([key, value]) => ({
-                    ...(value as F3Data),
-                    id: key
+            if (ordersJson) {
+                console.log("Supabase Orders Data Sample:", ordersJson[0]); // Debug logging
+
+                // Map Supabase 'orders' columns to 'F3Data' structure
+                // Precise Mapping based on User Schema
+                const rawData = ordersJson.map((order: any) => ({
+                    ...order, // Keep original fields for reference
+
+                    // 1. THÔNG TIN ĐỊNH DANH & HỆ THỐNG
+                    Mã_đơn_hàng: order.order_code || '', // order_code
+                    Ngày_lên_đơn: order.order_date || order.created_at || '', // order_date
+
+                    // 2. THÔNG TIN KHÁCH HÀNG
+                    Name: order.customer_name || '', // customer_name
+                    Khu_vực: order.country || '', // country (Khu vực thị trường)
+                    City: order.city || '', // city
+                    State: order.state || '', // state
+                    Zipcode: order.zipcode || '', // zipcode
+
+                    // 3. THÔNG TIN SẢN PHẨM
+                    Mặt_hàng: order.product || order.product_main || '', // product (Tên sản phẩm chính)
+
+                    // 5. THÔNG TIN NHÂN VIÊN & PHÂN CÔNG
+                    Team: order.team || '', // team
+                    NV_Vận_đơn: order.delivery_staff || '', // delivery_staff
+                    Nhân_viên_Marketing: order.marketing_staff || '', // marketing_staff
+                    Sale_Staff: order.sale_staff || '', // sale_staff
+                    CSKH: order.cskh || '', // cskh
+
+                    // 4. THÔNG TIN THANH TOÁN & TÀI CHÍNH
+                    Phí_FFM: Number(order.warehouse_fee || 0), // warehouse_fee (Phí xử lý đóng hàng & lưu kho)
+                    Phí_Chung: Number(order.general_fee || 0), // general_fee
+                    Phí_bay: Number(order.flight_fee || 0), // flight_fee
+                    Thuê_TK: Number(order.account_rental_fee || 0), // account_rental_fee
+                    Tiền_Hàng: Number(order.goods_amount || 0), // goods_amount (Giá trị hàng hóa)
+                    Phí_ship: Number(order.shipping_fee || 0), // shipping_fee (Phí ship thu từ khách) -> Mapping to 'Ship' column
+                    Tiền_Việt_đã_đối_soát: Number(order.reconciled_vnd || 0), // reconciled_vnd
+                    Tổng_tiền_VNĐ: Number(order.total_vnd || 0), // total_vnd
+
+                    // 6. TRẠNG THÁI ĐƠN HÀNG & VẬN CHUYỂN
+                    Kế_toán_xác_nhận_thu_tiền_về: order.accountant_confirm || '', // accountant_confirm
+                    Trạng_thái_giao_hàng_NB: order.delivery_status_nb || '', // delivery_status_nb
+                    Trạng_thái_thu_tiền: order.payment_status || '', // payment_status
+                    Đơn_vị_vận_chuyển: order.shipping_unit || order.carrier || '', // shipping_unit (Đơn vị vận chuyển)
+                    Thời_gian_cutoff: order.cutoff_time || '', // cutoff_time
+                    Mã_Tracking: order.tracking_code || '', // tracking_code
+                    Kết_quả_Check: order.check_result || '', // check_result
+
+                    // 8. GHI CHÚ & LÝ DO
+                    Ghi_chú: order.note || '', // note
+                    Lý_do: order.reason || '', // reason
+
+                    // Khác
+                    Hình_thức_thanh_toán: order.payment_method_text || order.payment_method || '', // payment_method_text
+
+                    // ID for internal use
+                    id: order.id ? String(order.id) : undefined
                 }));
+
                 const enhancedData = processRawData(rawData);
                 enhancedData.sort((a, b) => (b._timestamp || 0) - (a._timestamp || 0));
 
@@ -274,11 +394,36 @@ export const DatasheetF3: React.FC = () => {
     const saveExchangeRates = async () => {
         setIsSavingRates(true);
         try {
-            await fetch('https://lumi-6dff7-default-rtdb.asia-southeast1.firebasedatabase.app/settings/exchange_rates.json', {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
+            const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+            const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+            // 1. Get existing ID
+            let id = null;
+            try {
+                const res = await fetch(`${supabaseUrl}/rest/v1/exchange_rates?select=id&limit=1`, {
+                    headers: { 'apikey': supabaseKey, 'Authorization': `Bearer ${supabaseKey}` }
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data && data.length > 0) id = data[0].id;
+                }
+            } catch (e) { console.warn('Check existing rate failed', e); }
+
+            // 2. Upsert
+            const url = `${supabaseUrl}/rest/v1/exchange_rates${id ? `?id=eq.${id}` : ''}`;
+            const method = id ? 'PATCH' : 'POST';
+
+            await fetch(url, {
+                method: method,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'apikey': supabaseKey,
+                    'Authorization': `Bearer ${supabaseKey}`,
+                    'Prefer': 'return=minimal'
+                },
                 body: JSON.stringify(exchangeRates)
             });
+
             alert('Đã lưu tỷ giá thành công!');
         } catch (error) {
             console.error('Error saving rates:', error);
@@ -518,6 +663,84 @@ export const DatasheetF3: React.FC = () => {
         return str ? str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase() : "";
     };
 
+    // 4. Excel-like Copy/Paste & Edit Logic
+    const handleCellChange = (id: string, field: keyof F3Data, value: string) => {
+        // Remove non-numeric characters except dot/minus if needed, but usually just raw input
+        const rawValue = value.replace(/[^0-9.-]/g, '');
+        const numValue = parseFloat(rawValue);
+
+        setData(prev => prev.map(item => {
+            if (item.id === id) {
+                return { ...item, [field]: isNaN(numValue) ? 0 : numValue };
+            }
+            return item;
+        }));
+    };
+
+    const handlePaste = (e: React.ClipboardEvent<HTMLDivElement> | React.ClipboardEvent<HTMLInputElement>, id: string, startColId: string) => {
+        e.preventDefault();
+        const clipboardData = e.clipboardData.getData('text/plain');
+        if (!clipboardData) return;
+
+        const rows = clipboardData.split(/\r\n|\n|\r/).filter(row => row.trim() !== '');
+        if (rows.length === 0) return;
+
+        // Find start indices
+        const startRowIndex = processedData.findIndex(item => item.id === id);
+        if (startRowIndex === -1) return;
+
+        const startColIndex = visibleColumnDefs.findIndex(c => c.id === startColId);
+        if (startColIndex === -1) return;
+
+        setData(prevData => {
+            const newData = [...prevData];
+            const dataMap = new Map(newData.map(item => [item.id!, item]));
+
+            rows.forEach((rowVal, rOffset) => {
+                const targetRowIndex = startRowIndex + rOffset;
+                if (targetRowIndex >= processedData.length) return;
+                const targetItem = processedData[targetRowIndex];
+                if (!targetItem || !targetItem.id) return;
+
+                const cells = rowVal.split('\t');
+                const existing = dataMap.get(targetItem.id)!;
+                let updatedItem = { ...existing };
+                let hasChange = false;
+
+                cells.forEach((cellVal, cOffset) => {
+                    const targetColIndex = startColIndex + cOffset;
+                    if (targetColIndex >= visibleColumnDefs.length) return;
+
+                    const colDef = visibleColumnDefs[targetColIndex];
+                    if (!colDef.field) return; // Skip non-editable columns like STT/Thao tác
+
+                    // Determine value type based on column or field
+                    // Money columns are numeric
+                    const isMoney = ['phi_ffm', 'phi_chung', 'phi_bay', 'thue_tk', 'tien_hang', 'ship', 'doi_soat', 'tong_tien'].includes(colDef.id);
+
+                    if (isMoney) {
+                        const rawValue = cellVal.replace(/[^0-9.-]/g, '');
+                        const numValue = parseFloat(rawValue);
+                        if (!isNaN(numValue)) {
+                            updatedItem = { ...updatedItem, [colDef.field]: numValue };
+                            hasChange = true;
+                        }
+                    } else {
+                        // For text columns, just paste the value
+                        updatedItem = { ...updatedItem, [colDef.field]: cellVal.trim() };
+                        hasChange = true;
+                    }
+                });
+
+                if (hasChange) {
+                    dataMap.set(targetItem.id, updatedItem);
+                }
+            });
+
+            return Array.from(dataMap.values());
+        });
+    };
+
     // 1. Optimize Filter & Sort with useMemo
     const processedData = React.useMemo(() => {
         let filtered = data;
@@ -565,6 +788,65 @@ export const DatasheetF3: React.FC = () => {
         return processedData.slice(start, start + itemsPerPage);
     }, [processedData, currentPage]);
 
+    // Global Key Handler for Copy
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.ctrlKey && (e.key === 'c' || e.key === 'C')) {
+                // If we have a selection and NOT editing a cell
+                if (selection && !editingCell) {
+                    e.preventDefault();
+
+                    const startR = Math.min(selection.start.r, selection.end.r);
+                    const endR = Math.max(selection.start.r, selection.end.r);
+                    const startC = Math.min(selection.start.c, selection.end.c);
+                    const endC = Math.max(selection.start.c, selection.end.c);
+
+                    const rows = [];
+                    for (let r = startR; r <= endR; r++) {
+                        const rowData = [];
+                        for (let c = startC; c <= endC; c++) {
+                            const colId = visibleColumnDefs[c].id;
+                            const item = paginatedData[r];
+                            let value = '';
+
+                            // Extract value based on column ID
+                            if (colId === 'stt') value = ((currentPage - 1) * itemsPerPage + r + 1).toString();
+                            else if (colId === 'ma_don_hang') value = item?.Mã_đơn_hàng || '';
+                            else if (colId === 'ngay_len_don') value = formatDateDisplay(item?._timestamp);
+                            else if (colId === 'mat_hang') value = item?.Mặt_hàng || '';
+                            else if (['phi_ffm', 'phi_chung', 'phi_bay', 'thue_tk', 'tien_hang', 'ship', 'doi_soat', 'kt_xac_nhan', 'tong_tien'].includes(colId)) {
+                                const fieldMap: Record<string, keyof F3Data> = {
+                                    'phi_ffm': 'Phí_FFM', 'phi_chung': 'Phí_Chung', 'phi_bay': 'Phí_bay',
+                                    'thue_tk': 'Thuê_TK', 'tien_hang': 'Tiền_Hàng', 'ship': 'Phí_ship',
+                                    'doi_soat': 'Tiền_Việt_đã_đối_soát', 'tong_tien': 'Tổng_tiền_VNĐ'
+                                };
+                                const field = fieldMap[colId];
+                                if (field) value = formatCurrency(item?.[field] as number || 0).replace('₫', '').trim();
+                                else value = (item as any)[colId] || '';
+                            } else {
+                                value = (item as any)[colId] || '';
+                                if (colId === 'name') value = item?.Name || '';
+                                if (colId === 'khu_vuc') value = item?.Khu_vực === 'US' ? 'US' : 'Canada';
+                                if (colId === 'team') value = item?.Team || '';
+                            }
+                            rowData.push(value);
+                        }
+                        rows.push(rowData.join('\t'));
+                    }
+                    navigator.clipboard.writeText(rows.join('\n'));
+                }
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        window.addEventListener('mouseup', handleMouseUp);
+        return () => {
+            window.removeEventListener('keydown', handleKeyDown);
+            window.removeEventListener('mouseup', handleMouseUp);
+        };
+    }, [selection, editingCell, paginatedData, visibleColumnDefs, currentPage, itemsPerPage]);
+
+
     // Reset to page 1 when search changes
     useEffect(() => {
         setCurrentPage(1);
@@ -590,7 +872,9 @@ export const DatasheetF3: React.FC = () => {
             'KT xác nhận': item.Kế_toán_xác_nhận_thu_tiền_về,
             'Tổng tiền VNĐ': item.Tổng_tiền_VNĐ,
             'Trạng thái cuối cùng': item.Trạng_thái_giao_hàng_NB,
-            'Chi nhánh': item.Team
+            'Chi nhánh': item.Team,
+            'NV Sale': item.Sale_Staff,
+            'CSKH': item.CSKH
         }));
 
         const ws = XLSX.utils.json_to_sheet(exportData);
@@ -609,6 +893,103 @@ export const DatasheetF3: React.FC = () => {
         return `${day}/${month}/${year}`;
     };
 
+    // Helper to render money cell with seamless edit
+    const renderMoneyCell = (item: F3DataEnhanced, field: keyof F3Data, colId: string) => {
+        const isEditing = editingCell?.id === item.id && editingCell?.field === field;
+        const value = item[field] as number || 0;
+
+        if (isEditing) {
+            return (
+                <input
+                    type="text"
+                    className="w-full text-right bg-white outline-none ring-2 ring-blue-500 rounded px-1 z-10 relative"
+                    value={formatCurrency(value).replace('₫', '').trim()}
+                    onChange={(e) => handleCellChange(item.id!, field, e.target.value)}
+                    onBlur={() => setEditingCell(null)}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter') setEditingCell(null);
+                    }}
+                    autoFocus
+                />
+            );
+        }
+
+        return (
+            <div
+                className="w-full h-full min-h-[20px] outline-none cursor-text focus:bg-blue-50 focus:ring-1 focus:ring-blue-300 rounded px-1 transition-colors"
+                tabIndex={0}
+                onDoubleClick={() => setEditingCell({ id: item.id!, field })}
+                onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        setEditingCell({ id: item.id!, field });
+                    }
+                    if (e.ctrlKey && (e.key === 'c' || e.key === 'C')) {
+                        e.preventDefault();
+                        navigator.clipboard.writeText(value.toLocaleString('vi-VN'));
+                        // Optional: Show a small toast or visual feedback? 
+                        // For now just copy.
+                    }
+                }}
+                onPaste={(e) => {
+                    handlePaste(e, item.id!, colId);
+                }}
+            >
+                {formatCurrency(value)}
+            </div>
+        );
+    };
+
+    // Revised Render Cell Content
+    const renderCellContent = (item: F3DataEnhanced, colId: string, actualIndex: number) => {
+        switch (colId) {
+            case 'stt': return actualIndex;
+            case 'ma_don_hang': return item?.Mã_đơn_hàng || '-';
+            case 'ngay_len_don': return formatDateDisplay(item?._timestamp);
+            case 'mat_hang': return item?.Mặt_hàng || '-';
+            case 'name': return item?.Name || '-';
+            case 'khu_vuc': return item?.Khu_vực === 'US' ? 'US' : 'Canada';
+            case 'city': return item?.City || '-';
+            case 'state': return item?.State || '-';
+            case 'zipcode': return item?.Zipcode || '-';
+            case 'team': return item?.Team || '-';
+            case 'phi_ffm': return renderMoneyCell(item, 'Phí_FFM', 'phi_ffm');
+            case 'phi_chung': return renderMoneyCell(item, 'Phí_Chung', 'phi_chung');
+            case 'phi_bay': return renderMoneyCell(item, 'Phí_bay', 'phi_bay');
+            case 'thue_tk': return renderMoneyCell(item, 'Thuê_TK', 'thue_tk');
+            case 'tien_hang': return renderMoneyCell(item, 'Tiền_Hàng', 'tien_hang');
+            case 'ship': return renderMoneyCell(item, 'Phí_ship', 'ship');
+            case 'doi_soat': return renderMoneyCell(item, 'Tiền_Việt_đã_đối_soát', 'doi_soat');
+            case 'kt_xac_nhan': return item?.Kế_toán_xác_nhận_thu_tiền_về || '-';
+            case 'tong_tien': return renderMoneyCell(item, 'Tổng_tiền_VNĐ', 'tong_tien');
+            case 'trang_thai_nb': return item?.Trạng_thái_giao_hàng_NB || '-';
+            case 'ghi_chu': return item?.Ghi_chú || '-';
+            case 'hinh_thuc_tt': return item?.Hình_thức_thanh_toán || '-';
+            case 'ket_qua_check': return item?.Kết_quả_Check || '-';
+            case 'ly_do': return item?.Lý_do || '-';
+            case 'ma_tracking': return item?.Mã_Tracking || '-';
+            case 'nv_van_don': return item?.NV_Vận_đơn || '-';
+            case 'nv_marketing': return item?.Nhân_viên_Marketing || '-';
+            case 'sale_staff': return item?.Sale_Staff || '-';
+            case 'cskh': return item?.CSKH || '-';
+            case 'thoi_gian_cutoff': return item?.Thời_gian_cutoff || '-';
+            case 'trang_thai_thu_tien': return item?.Trạng_thái_thu_tiền || '-';
+            case 'dv_van_chuyen': return item?.Đơn_vị_vận_chuyển || '-';
+            case 'thao_tac': return (
+                <div className="flex items-center justify-center gap-2">
+                    <button className="text-blue-500 hover:text-blue-700" title="Xem chi tiết" onClick={(e) => { e.stopPropagation(); setViewingItem(item); }}>
+                        <Eye size={16} />
+                    </button>
+                    <button className="text-yellow-500 hover:text-yellow-700" title="Sửa" onClick={(e) => { e.stopPropagation(); setEditingItem({ ...item }); }}>
+                        <Edit size={16} />
+                    </button>
+                </div>
+            );
+            default: return '-';
+        }
+    };
+
+
     return (
         <div className="space-y-6">
             <div className="flex flex-col md:flex-row gap-6">
@@ -626,17 +1007,19 @@ export const DatasheetF3: React.FC = () => {
                         </button>
                     </div>
                     <div className="grid grid-cols-5 gap-2 text-xs">
-                        {Object.entries(exchangeRates).map(([currency, value]) => (
-                            <div key={currency} className="flex flex-col gap-1">
-                                <label className="font-semibold text-slate-500 text-center">{currency}</label>
-                                <input
-                                    type="number"
-                                    value={value}
-                                    onChange={(e) => handleRateChange(currency as keyof ExchangeRates, e.target.value)}
-                                    className="border border-slate-300 rounded px-1 py-1 text-center w-16 focus:border-blue-500 outline-none"
-                                />
-                            </div>
-                        ))}
+                        {Object.entries(exchangeRates)
+                            .filter(([key]) => !['id', 'rate_name', 'last_update', 'created_at', 'updated_at', 'last_updated_by'].includes(key) && !key.startsWith('_'))
+                            .map(([currency, rate]) => (
+                                <div key={currency} className="flex flex-col items-center">
+                                    <label className="text-xs font-semibold text-slate-500 mb-1">{currency}</label>
+                                    <input
+                                        type="number"
+                                        value={rate}
+                                        onChange={(e) => handleRateChange(currency as keyof ExchangeRates, e.target.value)}
+                                        className="border border-slate-300 rounded px-1 py-1 text-center w-16 focus:border-blue-500 outline-none"
+                                    />
+                                </div>
+                            ))}
                     </div>
                 </div>
 
@@ -831,87 +1214,58 @@ export const DatasheetF3: React.FC = () => {
                                     {isColVisible('ma_tracking') && <th className="px-4 py-3 whitespace-nowrap border border-green-800 bg-[#1e7e34]">Mã Tracking</th>}
                                     {isColVisible('nv_van_don') && <th className="px-4 py-3 whitespace-nowrap border border-green-800 bg-[#1e7e34]">NV Vận đơn</th>}
                                     {isColVisible('nv_marketing') && <th className="px-4 py-3 whitespace-nowrap border border-green-800 bg-[#1e7e34]">NV Marketing</th>}
+                                    {isColVisible('sale_staff') && <th className="px-4 py-3 whitespace-nowrap border border-green-800 bg-[#1e7e34]">NV Sale</th>}
+                                    {isColVisible('cskh') && <th className="px-4 py-3 whitespace-nowrap border border-green-800 bg-[#1e7e34]">CSKH</th>}
                                     {isColVisible('thoi_gian_cutoff') && <th className="px-4 py-3 whitespace-nowrap border border-green-800 bg-[#1e7e34]">Time Cutoff</th>}
                                     {isColVisible('trang_thai_thu_tien') && <th className="px-4 py-3 whitespace-nowrap border border-green-800 bg-[#1e7e34]">TT Thu tiền</th>}
                                     {isColVisible('dv_van_chuyen') && <th className="px-4 py-3 whitespace-nowrap border border-green-800 bg-[#1e7e34]">ĐV Vận chuyển</th>}
                                     {isColVisible('thao_tac') && <th className="px-4 py-3 text-center whitespace-nowrap border border-green-800 bg-[#1e7e34] sticky right-0 z-30">Thao tác</th>}
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-slate-200">
-                                {paginatedData.map((item, index) => {
-                                    // Calculate actual index across pages
-                                    const actualIndex = (currentPage - 1) * itemsPerPage + index + 1;
+                            <tbody className="divide-y divide-slate-200 select-none">
+                                {paginatedData.map((item, rIndex) => {
+                                    const actualIndex = (currentPage - 1) * itemsPerPage + rIndex + 1;
                                     return (
-                                        <tr key={item?.Mã_đơn_hàng || index} className="hover:bg-slate-50 group">
-                                            {isColVisible('stt') && <td className="px-4 py-3 text-center border border-slate-200 text-slate-900 font-medium sticky left-0 z-20 bg-white group-hover:bg-slate-50">{actualIndex}</td>}
-                                            {isColVisible('ma_don_hang') && <td className="px-4 py-3 font-medium text-slate-900 border border-slate-200 sticky left-[60px] z-20 bg-white group-hover:bg-slate-50">{item?.Mã_đơn_hàng || '-'}</td>}
-                                            {isColVisible('ngay_len_don') && <td className="px-4 py-3 text-slate-900 border border-slate-200 whitespace-nowrap">{formatDateDisplay(item?._timestamp)}</td>}
-                                            {isColVisible('mat_hang') && <td className="px-4 py-3 text-slate-900 border border-slate-200">{item?.Mặt_hàng || '-'}</td>}
-                                            {isColVisible('name') && <td className="px-4 py-3 text-slate-900 border border-slate-200">{item?.Name || '-'}</td>}
-                                            {isColVisible('khu_vuc') && <td className="px-4 py-3 text-slate-900 border border-slate-200">
-                                                {item?.Khu_vực === 'US' ? 'US' : 'Canada'}
-                                            </td>}
-                                            {isColVisible('city') && <td className="px-4 py-3 text-slate-900 border border-slate-200">{item?.City || '-'}</td>}
-                                            {isColVisible('state') && <td className="px-4 py-3 text-slate-900 border border-slate-200">{item?.State || '-'}</td>}
-                                            {isColVisible('zipcode') && <td className="px-4 py-3 text-slate-900 border border-slate-200">{item?.Zipcode || '-'}</td>}
-                                            {isColVisible('team') && <td className="px-4 py-3 text-slate-900 border border-slate-200">{item?.Team || '-'}</td>}
-                                            {isColVisible('phi_ffm') && <td className="px-4 py-3 text-right text-slate-900 border border-slate-200">
-                                                {formatCurrency(item?.Phí_FFM || 0)}
-                                            </td>}
-                                            {isColVisible('phi_chung') && <td className="px-4 py-3 text-right text-slate-900 border border-slate-200">
-                                                {formatCurrency(item?.Phí_Chung || 0)}
-                                            </td>}
-                                            {isColVisible('phi_bay') && <td className="px-4 py-3 text-right text-slate-900 border border-slate-200">
-                                                {formatCurrency(item?.Phí_bay || 0)}
-                                            </td>}
-                                            {isColVisible('thue_tk') && <td className="px-4 py-3 text-right text-slate-900 border border-slate-200">
-                                                {formatCurrency(item?.Thuê_TK || 0)}
-                                            </td>}
-                                            {isColVisible('tien_hang') && <td className="px-4 py-3 text-right text-slate-900 border border-slate-200">
-                                                {formatCurrency(item?.Tiền_Hàng || 0)}
-                                            </td>}
-                                            {isColVisible('ship') && <td className="px-4 py-3 text-right text-slate-900 border border-slate-200">
-                                                {formatCurrency(item?.Phí_ship || 0)}
-                                            </td>}
-                                            {isColVisible('doi_soat') && <td className="px-4 py-3 text-right text-slate-900 border border-slate-200">
-                                                {formatCurrency(item?.Tiền_Việt_đã_đối_soát || 0)}
-                                            </td>}
-                                            {isColVisible('kt_xac_nhan') && <td className="px-4 py-3 text-right text-slate-900 border border-slate-200">
-                                                {item?.Kế_toán_xác_nhận_thu_tiền_về || '-'}
-                                            </td>}
-                                            {isColVisible('tong_tien') && <td className="px-4 py-3 text-right font-medium text-slate-900 border border-slate-200">
-                                                {formatCurrency(item?.Tổng_tiền_VNĐ || 0)}
-                                            </td>}
-                                            {isColVisible('trang_thai_nb') && <td className="px-4 py-3 text-slate-900 border border-slate-200">{item?.Trạng_thái_giao_hàng_NB || '-'}</td>}
-                                            {isColVisible('ghi_chu') && <td className="px-4 py-3 text-slate-900 border border-slate-200 max-w-[200px] truncate" title={item?.Ghi_chú}>{item?.Ghi_chú || '-'}</td>}
-                                            {isColVisible('hinh_thuc_tt') && <td className="px-4 py-3 text-slate-900 border border-slate-200">{item?.Hình_thức_thanh_toán || '-'}</td>}
-                                            {isColVisible('ket_qua_check') && <td className="px-4 py-3 text-slate-900 border border-slate-200">{item?.Kết_quả_Check || '-'}</td>}
-                                            {isColVisible('ly_do') && <td className="px-4 py-3 text-slate-900 border border-slate-200">{item?.Lý_do || '-'}</td>}
-                                            {isColVisible('ma_tracking') && <td className="px-4 py-3 text-slate-900 border border-slate-200">{item?.Mã_Tracking || '-'}</td>}
-                                            {isColVisible('nv_van_don') && <td className="px-4 py-3 text-slate-900 border border-slate-200">{item?.NV_Vận_đơn || '-'}</td>}
-                                            {isColVisible('nv_marketing') && <td className="px-4 py-3 text-slate-900 border border-slate-200">{item?.Nhân_viên_Marketing || '-'}</td>}
-                                            {isColVisible('thoi_gian_cutoff') && <td className="px-4 py-3 text-slate-900 border border-slate-200">{item?.Thời_gian_cutoff || '-'}</td>}
-                                            {isColVisible('trang_thai_thu_tien') && <td className="px-4 py-3 text-slate-900 border border-slate-200">{item?.Trạng_thái_thu_tiền || '-'}</td>}
-                                            {isColVisible('dv_van_chuyen') && <td className="px-4 py-3 text-slate-900 border border-slate-200">{item?.Đơn_vị_vận_chuyển || '-'}</td>}
+                                        <tr key={item?.id || rIndex} className="hover:bg-slate-50 group">
+                                            {visibleColumnDefs.map((col, cIndex) => {
+                                                // Determine sticky classes
+                                                let stickyClass = '';
+                                                if (col.id === 'stt') stickyClass = 'sticky left-0 z-20 bg-white group-hover:bg-slate-50';
+                                                else if (col.id === 'ma_don_hang') stickyClass = 'sticky left-[60px] z-20 bg-white group-hover:bg-slate-50';
+                                                else if (col.id === 'thao_tac') stickyClass = 'sticky right-0 z-20 bg-white group-hover:bg-slate-50';
 
-                                            {isColVisible('thao_tac') && <td className="px-4 py-3 text-center border border-slate-200 sticky right-0 z-20 bg-white group-hover:bg-slate-50">
-                                                <div className="flex items-center justify-center gap-2">
-                                                    <button
-                                                        className="text-blue-500 hover:text-blue-700"
-                                                        title="Xem chi tiết"
-                                                        onClick={() => setViewingItem(item)}
+                                                // Determine range selection style
+                                                let selectionClass = '';
+                                                if (selection) {
+                                                    const startR = Math.min(selection.start.r, selection.end.r);
+                                                    const endR = Math.max(selection.start.r, selection.end.r);
+                                                    const startC = Math.min(selection.start.c, selection.end.c);
+                                                    const endC = Math.max(selection.start.c, selection.end.c);
+
+                                                    if (rIndex >= startR && rIndex <= endR && cIndex >= startC && cIndex <= endC) {
+                                                        selectionClass = 'bg-blue-100 ring-1 ring-blue-300 relative z-10'; // Highlight
+                                                    }
+                                                }
+
+                                                // Alignment
+                                                const isMoney = ['phi_ffm', 'phi_chung', 'phi_bay', 'thue_tk', 'tien_hang', 'ship', 'doi_soat', 'kt_xac_nhan', 'tong_tien'].includes(col.id);
+                                                const alignClass = isMoney ? 'text-right' : (col.id === 'stt' || col.id === 'thao_tac' ? 'text-center' : 'text-left');
+
+                                                return (
+                                                    <td
+                                                        key={col.id}
+                                                        className={`px-4 py-3 border border-slate-200 text-slate-900 ${stickyClass} ${selectionClass} ${alignClass} ${col.id === 'ghi_chu' ? 'max-w-[200px] truncate' : ''} ${col.id === 'ngay_len_don' ? 'whitespace-nowrap' : ''}`}
+                                                        onMouseDown={(e) => {
+                                                            if (e.button === 0) { // Left click only
+                                                                handleMouseDown(rIndex, cIndex);
+                                                            }
+                                                        }}
+                                                        onMouseEnter={() => handleMouseEnter(rIndex, cIndex)}
                                                     >
-                                                        <Eye size={16} />
-                                                    </button>
-                                                    <button
-                                                        className="text-yellow-500 hover:text-yellow-700"
-                                                        title="Sửa"
-                                                        onClick={() => setEditingItem({ ...item })}
-                                                    >
-                                                        <Edit size={16} />
-                                                    </button>
-                                                </div>
-                                            </td>}
+                                                        {renderCellContent(item, col.id, actualIndex)}
+                                                    </td>
+                                                );
+                                            })}
                                         </tr>
                                     );
                                 })}
