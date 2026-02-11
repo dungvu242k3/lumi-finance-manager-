@@ -1540,6 +1540,7 @@ export const DatasheetF3: React.FC = () => {
                                     {isColVisible('state') && <th className="px-4 py-3 whitespace-nowrap border border-green-800 bg-[#1e7e34]">State</th>}
                                     {isColVisible('zipcode') && <th className="px-4 py-3 whitespace-nowrap border border-green-800 bg-[#1e7e34]">Zipcode</th>}
                                     {isColVisible('team') && <th className="px-4 py-3 whitespace-nowrap border border-green-800 bg-[#1e7e34]">Chi nhánh</th>}
+                                    {isColVisible('phi_ffm') && <th className="px-4 py-3 text-right whitespace-nowrap border border-green-800 bg-[#1e7e34]">Phí FFM</th>}
                                     {isColVisible('phi_chung') && <th className="px-4 py-3 text-right whitespace-nowrap border border-green-800 bg-[#1e7e34]">Phí Chung</th>}
                                     {isColVisible('phi_bay') && <th className="px-4 py-3 text-right whitespace-nowrap border border-green-800 bg-[#1e7e34]">Phí Bay</th>}
                                     {isColVisible('thue_tk') && <th className="px-4 py-3 text-right whitespace-nowrap border border-green-800 bg-[#1e7e34]">Thuê TK</th>}
