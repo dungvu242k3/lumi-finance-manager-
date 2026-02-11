@@ -60,6 +60,23 @@ const COLUMN_DEFS: { id: string; label: string; field?: keyof F3Data }[] = [
     { id: 'thao_tac', label: 'Thao tác' },
 ];
 
+// Reverse field mapping: F3Data field -> Supabase column name
+const F3_TO_SUPABASE_FIELD: Record<string, string> = {
+    'Phí_FFM': 'warehouse_fee',
+    'Phí_Chung': 'general_fee',
+    'Phí_bay': 'flight_fee',
+    'Thuê_TK': 'account_rental_fee',
+    'Tiền_Hàng': 'goods_amount',
+    'Phí_ship': 'shipping_fee',
+    'Tiền_Việt_đã_đối_soát': 'reconciled_vnd',
+    'Tổng_tiền_VNĐ': 'total_amount_vnd',
+    'Kế_toán_xác_nhận_thu_tiền_về': 'accountant_confirm',
+    'Trạng_thái_giao_hàng_NB': 'delivery_status_nb',
+};
+
+// Dropdown options for KT xác nhận
+const KT_XAC_NHAN_OPTIONS = ['', 'Đã xác nhận', 'Chưa xác nhận', 'Đang xử lý'];
+
 // Helper to remove accents and normalize string for search
 const normalizeString = (str: string) => {
     return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
@@ -363,7 +380,7 @@ export const DatasheetF3: React.FC = () => {
                     Tiền_Hàng: Number(order.goods_amount || 0), // goods_amount (Giá trị hàng hóa)
                     Phí_ship: Number(order.shipping_fee || 0), // shipping_fee (Phí ship thu từ khách) -> Mapping to 'Ship' column
                     Tiền_Việt_đã_đối_soát: Number(order.reconciled_vnd || 0), // reconciled_vnd
-                    Tổng_tiền_VNĐ: Number(order.total_vnd || 0), // total_vnd
+                    Tổng_tiền_VNĐ: Number(order.total_amount_vnd || 0), // total_amount_vnd
 
                     // 6. TRẠNG THÁI ĐƠN HÀNG & VẬN CHUYỂN
                     Kế_toán_xác_nhận_thu_tiền_về: order.accountant_confirm || '', // accountant_confirm
@@ -676,6 +693,34 @@ export const DatasheetF3: React.FC = () => {
         return str ? str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase() : "";
     };
 
+    // Save a single cell value to Supabase
+    const saveCellToSupabase = useCallback(async (itemId: string, field: keyof F3Data, value: number) => {
+        const supabaseField = F3_TO_SUPABASE_FIELD[field as string];
+        if (!supabaseField || !itemId) return;
+
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+        const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+        if (!supabaseUrl || !supabaseKey) return;
+
+        try {
+            const res = await fetch(`${supabaseUrl}/rest/v1/orders?id=eq.${itemId}`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'apikey': supabaseKey,
+                    'Authorization': `Bearer ${supabaseKey}`,
+                    'Prefer': 'return=minimal'
+                },
+                body: JSON.stringify({ [supabaseField]: value })
+            });
+            if (!res.ok) {
+                console.error('Save cell failed:', res.statusText);
+            }
+        } catch (error) {
+            console.error('Error saving cell to Supabase:', error);
+        }
+    }, []);
+
     // 4. Excel-like Copy/Paste & Edit Logic
     const handleCellChange = useCallback((id: string, field: keyof F3Data, value: string) => {
         // Strip everything except digits and minus sign (dots are thousands separators in VN format)
@@ -710,6 +755,7 @@ export const DatasheetF3: React.FC = () => {
         setData(prevData => {
             const newData = [...prevData];
             const dataMap = new Map(newData.map(item => [item.id!, item]));
+            const changedItems: { id: string, updates: Record<string, any> }[] = [];
 
             rows.forEach((rowVal, rOffset) => {
                 const targetRowIndex = startRowIndex + rOffset;
@@ -721,17 +767,17 @@ export const DatasheetF3: React.FC = () => {
                 const existing = dataMap.get(targetItem.id)!;
                 let updatedItem = { ...existing };
                 let hasChange = false;
+                const supabaseUpdates: Record<string, any> = {};
 
                 cells.forEach((cellVal, cOffset) => {
                     const targetColIndex = startColIndex + cOffset;
                     if (targetColIndex >= visibleColumnDefs.length) return;
 
                     const colDef = visibleColumnDefs[targetColIndex];
-                    if (!colDef.field) return; // Skip non-editable columns like STT/Thao tác
+                    if (!colDef.field) return;
 
-                    // Determine value type based on column or field
-                    // Money columns are numeric
                     const isMoney = ['phi_ffm', 'phi_chung', 'phi_bay', 'thue_tk', 'tien_hang', 'ship', 'doi_soat', 'tong_tien'].includes(colDef.id);
+                    const supabaseField = F3_TO_SUPABASE_FIELD[colDef.field as string];
 
                     if (isMoney) {
                         const rawValue = cellVal.replace(/[^0-9.-]/g, '');
@@ -739,18 +785,40 @@ export const DatasheetF3: React.FC = () => {
                         if (!isNaN(numValue)) {
                             updatedItem = { ...updatedItem, [colDef.field]: numValue };
                             hasChange = true;
+                            if (supabaseField) supabaseUpdates[supabaseField] = numValue;
                         }
                     } else {
-                        // For text columns, just paste the value
                         updatedItem = { ...updatedItem, [colDef.field]: cellVal.trim() };
                         hasChange = true;
+                        if (supabaseField) supabaseUpdates[supabaseField] = cellVal.trim();
                     }
                 });
 
                 if (hasChange) {
                     dataMap.set(targetItem.id, updatedItem);
+                    if (Object.keys(supabaseUpdates).length > 0) {
+                        changedItems.push({ id: targetItem.id, updates: supabaseUpdates });
+                    }
                 }
             });
+
+            // Batch save to Supabase
+            const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+            const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+            if (supabaseUrl && supabaseKey && changedItems.length > 0) {
+                changedItems.forEach(({ id, updates }) => {
+                    fetch(`${supabaseUrl}/rest/v1/orders?id=eq.${id}`, {
+                        method: 'PATCH',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'apikey': supabaseKey,
+                            'Authorization': `Bearer ${supabaseKey}`,
+                            'Prefer': 'return=minimal'
+                        },
+                        body: JSON.stringify(updates)
+                    }).catch(err => console.error('Paste save failed for', id, err));
+                });
+            }
 
             return Array.from(dataMap.values());
         });
@@ -911,6 +979,7 @@ export const DatasheetF3: React.FC = () => {
             setData(prevData => {
                 const newData = [...prevData];
                 const dataMap = new Map(newData.map(item => [item.id!, item]));
+                const changedItems: { id: string, updates: Record<string, any> }[] = [];
 
                 rows.forEach((rowVal, rOffset) => {
                     const targetRowIndex = startRowIndex + rOffset;
@@ -923,6 +992,7 @@ export const DatasheetF3: React.FC = () => {
                     if (!existing) return;
                     let updatedItem = { ...existing };
                     let hasChange = false;
+                    const supabaseUpdates: Record<string, any> = {};
 
                     cells.forEach((cellVal, cOffset) => {
                         const targetColIndex = startColIndex + cOffset;
@@ -932,6 +1002,7 @@ export const DatasheetF3: React.FC = () => {
                         if (!colDef.field) return;
 
                         const isMoney = ['phi_ffm', 'phi_chung', 'phi_bay', 'thue_tk', 'tien_hang', 'ship', 'doi_soat', 'tong_tien'].includes(colDef.id);
+                        const supabaseField = F3_TO_SUPABASE_FIELD[colDef.field as string];
 
                         if (isMoney) {
                             const rawValue = cellVal.replace(/[^0-9.-]/g, '');
@@ -939,17 +1010,40 @@ export const DatasheetF3: React.FC = () => {
                             if (!isNaN(numValue)) {
                                 updatedItem = { ...updatedItem, [colDef.field]: numValue };
                                 hasChange = true;
+                                if (supabaseField) supabaseUpdates[supabaseField] = numValue;
                             }
                         } else {
                             updatedItem = { ...updatedItem, [colDef.field]: cellVal.trim() };
                             hasChange = true;
+                            if (supabaseField) supabaseUpdates[supabaseField] = cellVal.trim();
                         }
                     });
 
                     if (hasChange) {
                         dataMap.set(targetItem.id, updatedItem);
+                        if (Object.keys(supabaseUpdates).length > 0) {
+                            changedItems.push({ id: targetItem.id, updates: supabaseUpdates });
+                        }
                     }
                 });
+
+                // Batch save to Supabase
+                const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+                const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+                if (supabaseUrl && supabaseKey && changedItems.length > 0) {
+                    changedItems.forEach(({ id, updates }) => {
+                        fetch(`${supabaseUrl}/rest/v1/orders?id=eq.${id}`, {
+                            method: 'PATCH',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'apikey': supabaseKey,
+                                'Authorization': `Bearer ${supabaseKey}`,
+                                'Prefer': 'return=minimal'
+                            },
+                            body: JSON.stringify(updates)
+                        }).catch(err => console.error('Paste save failed for', id, err));
+                    });
+                }
 
                 return Array.from(dataMap.values());
             });
@@ -1024,9 +1118,19 @@ export const DatasheetF3: React.FC = () => {
                     className="w-full text-right bg-white outline-none ring-2 ring-blue-500 rounded px-1 z-10 relative"
                     value={value === 0 ? '' : value.toLocaleString('vi-VN')}
                     onChange={(e) => handleCellChange(item.id!, field, e.target.value)}
-                    onBlur={() => setEditingCell(null)}
+                    onBlur={() => {
+                        const latestItem = dataRef.current.find(d => d.id === item.id);
+                        const latestValue = (latestItem?.[field] as number) || 0;
+                        saveCellToSupabase(item.id!, field, latestValue);
+                        setEditingCell(null);
+                    }}
                     onKeyDown={(e) => {
-                        if (e.key === 'Enter') setEditingCell(null);
+                        if (e.key === 'Enter') {
+                            const latestItem = dataRef.current.find(d => d.id === item.id);
+                            const latestValue = (latestItem?.[field] as number) || 0;
+                            saveCellToSupabase(item.id!, field, latestValue);
+                            setEditingCell(null);
+                        }
                     }}
                     autoFocus
                 />
@@ -1059,6 +1163,125 @@ export const DatasheetF3: React.FC = () => {
         );
     };
 
+    // Helper to render dropdown cell with inline edit
+    const renderDropdownCell = (item: F3DataEnhanced, field: keyof F3Data, options: string[]) => {
+        const isEditing = editingCell?.id === item.id && editingCell?.field === field;
+        const value = (item[field] as string) || '';
+
+        if (isEditing) {
+            return (
+                <select
+                    className="w-full bg-white outline-none ring-2 ring-blue-500 rounded px-1 z-10 relative text-sm"
+                    value={value}
+                    onChange={(e) => {
+                        const newValue = e.target.value;
+                        setData(prev => {
+                            const idx = prev.findIndex(d => d.id === item.id);
+                            if (idx === -1) return prev;
+                            const newData = [...prev];
+                            newData[idx] = { ...newData[idx], [field]: newValue };
+                            return newData;
+                        });
+                        // Save to Supabase
+                        const supabaseField = F3_TO_SUPABASE_FIELD[field as string];
+                        if (supabaseField && item.id) {
+                            const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+                            const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+                            if (supabaseUrl && supabaseKey) {
+                                fetch(`${supabaseUrl}/rest/v1/orders?id=eq.${item.id}`, {
+                                    method: 'PATCH',
+                                    headers: {
+                                        'Content-Type': 'application/json',
+                                        'apikey': supabaseKey,
+                                        'Authorization': `Bearer ${supabaseKey}`,
+                                        'Prefer': 'return=minimal'
+                                    },
+                                    body: JSON.stringify({ [supabaseField]: newValue })
+                                }).catch(err => console.error('Save dropdown failed:', err));
+                            }
+                        }
+                        setEditingCell(null);
+                    }}
+                    onBlur={() => setEditingCell(null)}
+                    autoFocus
+                >
+                    {options.map(opt => (
+                        <option key={opt} value={opt}>{opt || '-- Chọn --'}</option>
+                    ))}
+                </select>
+            );
+        }
+
+        return (
+            <div
+                className="w-full h-full min-h-[20px] outline-none cursor-pointer hover:bg-blue-50 rounded px-1 transition-colors"
+                onClick={() => setEditingCell({ id: item.id!, field })}
+            >
+                {value || '-'}
+            </div>
+        );
+    };
+
+    // Helper to render inline text cell with edit
+    const renderTextCell = (item: F3DataEnhanced, field: keyof F3Data) => {
+        const isEditing = editingCell?.id === item.id && editingCell?.field === field;
+        const value = (item[field] as string) || '';
+
+        if (isEditing) {
+            return (
+                <input
+                    type="text"
+                    className="w-full bg-white outline-none ring-2 ring-blue-500 rounded px-1 z-10 relative text-sm"
+                    defaultValue={value}
+                    onBlur={(e) => {
+                        const newValue = e.target.value.trim();
+                        setData(prev => {
+                            const idx = prev.findIndex(d => d.id === item.id);
+                            if (idx === -1) return prev;
+                            const newData = [...prev];
+                            newData[idx] = { ...newData[idx], [field]: newValue };
+                            return newData;
+                        });
+                        // Save to Supabase
+                        const supabaseField = F3_TO_SUPABASE_FIELD[field as string];
+                        if (supabaseField && item.id) {
+                            const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+                            const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+                            if (supabaseUrl && supabaseKey) {
+                                fetch(`${supabaseUrl}/rest/v1/orders?id=eq.${item.id}`, {
+                                    method: 'PATCH',
+                                    headers: {
+                                        'Content-Type': 'application/json',
+                                        'apikey': supabaseKey,
+                                        'Authorization': `Bearer ${supabaseKey}`,
+                                        'Prefer': 'return=minimal'
+                                    },
+                                    body: JSON.stringify({ [supabaseField]: newValue })
+                                }).catch(err => console.error('Save text cell failed:', err));
+                            }
+                        }
+                        setEditingCell(null);
+                    }}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                            (e.target as HTMLInputElement).blur();
+                        }
+                    }}
+                    autoFocus
+                />
+            );
+        }
+
+        return (
+            <div
+                className="w-full h-full min-h-[20px] outline-none cursor-text hover:bg-blue-50 rounded px-1 transition-colors"
+                onClick={() => setEditingCell({ id: item.id!, field })}
+            >
+                {value || '-'}
+            </div>
+        );
+    };
+
     // Revised Render Cell Content
     const renderCellContent = (item: F3DataEnhanced, colId: string, actualIndex: number) => {
         switch (colId) {
@@ -1079,9 +1302,9 @@ export const DatasheetF3: React.FC = () => {
             case 'tien_hang': return renderMoneyCell(item, 'Tiền_Hàng', 'tien_hang');
             case 'ship': return renderMoneyCell(item, 'Phí_ship', 'ship');
             case 'doi_soat': return renderMoneyCell(item, 'Tiền_Việt_đã_đối_soát', 'doi_soat');
-            case 'kt_xac_nhan': return item?.Kế_toán_xác_nhận_thu_tiền_về || '-';
+            case 'kt_xac_nhan': return renderDropdownCell(item, 'Kế_toán_xác_nhận_thu_tiền_về', KT_XAC_NHAN_OPTIONS);
             case 'tong_tien': return renderMoneyCell(item, 'Tổng_tiền_VNĐ', 'tong_tien');
-            case 'trang_thai_nb': return item?.Trạng_thái_giao_hàng_NB || '-';
+            case 'trang_thai_nb': return renderTextCell(item, 'Trạng_thái_giao_hàng_NB');
             case 'ghi_chu': return item?.Ghi_chú || '-';
             case 'hinh_thuc_tt': return item?.Hình_thức_thanh_toán || '-';
             case 'ket_qua_check': return item?.Kết_quả_Check || '-';
