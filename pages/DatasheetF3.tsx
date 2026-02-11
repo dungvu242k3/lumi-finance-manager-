@@ -942,7 +942,22 @@ export const DatasheetF3: React.FC = () => {
                         }
                         rows.push(rowData.join('\t'));
                     }
-                    navigator.clipboard.writeText(rows.join('\n'));
+                    const textToCopy = rows.join('\n');
+                    const fallbackCopy = (text: string) => {
+                        const textarea = document.createElement('textarea');
+                        textarea.value = text;
+                        textarea.style.position = 'fixed';
+                        textarea.style.opacity = '0';
+                        document.body.appendChild(textarea);
+                        textarea.select();
+                        document.execCommand('copy');
+                        document.body.removeChild(textarea);
+                    };
+                    if (navigator.clipboard && navigator.clipboard.writeText) {
+                        navigator.clipboard.writeText(textToCopy).catch(() => fallbackCopy(textToCopy));
+                    } else {
+                        fallbackCopy(textToCopy);
+                    }
                 }
             }
         };
@@ -1149,9 +1164,18 @@ export const DatasheetF3: React.FC = () => {
                     }
                     if (e.ctrlKey && (e.key === 'c' || e.key === 'C')) {
                         e.preventDefault();
-                        navigator.clipboard.writeText(value.toLocaleString('vi-VN'));
-                        // Optional: Show a small toast or visual feedback? 
-                        // For now just copy.
+                        const text = value.toLocaleString('vi-VN');
+                        if (navigator.clipboard && navigator.clipboard.writeText) {
+                            navigator.clipboard.writeText(text).catch(() => {
+                                const ta = document.createElement('textarea');
+                                ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+                                document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+                            });
+                        } else {
+                            const ta = document.createElement('textarea');
+                            ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+                            document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+                        }
                     }
                 }}
                 onPaste={(e) => {
