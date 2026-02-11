@@ -156,10 +156,14 @@ export const DatasheetF3: React.FC = () => {
         return COLUMN_DEFS.filter(c => visibleColumns.includes(c.id));
     }, [visibleColumns]);
 
+    const tableContainerRef = useRef<HTMLDivElement>(null);
+
     // Selection Handlers (Moved here for clarity but logic is independent)
     const handleMouseDown = (r: number, c: number) => {
         isSelecting.current = true;
         setSelection({ start: { r, c }, end: { r, c } });
+        // Focus the table container so paste events fire
+        tableContainerRef.current?.focus();
     };
 
     const handleMouseEnter = (r: number, c: number) => {
@@ -780,8 +784,8 @@ export const DatasheetF3: React.FC = () => {
                     const supabaseField = F3_TO_SUPABASE_FIELD[colDef.field as string];
 
                     if (isMoney) {
-                        const rawValue = cellVal.replace(/[^0-9.-]/g, '');
-                        const numValue = parseFloat(rawValue);
+                        const rawValue = cellVal.replace(/[^0-9-]/g, '');
+                        const numValue = parseInt(rawValue, 10);
                         if (!isNaN(numValue)) {
                             updatedItem = { ...updatedItem, [colDef.field]: numValue };
                             hasChange = true;
@@ -1020,8 +1024,8 @@ export const DatasheetF3: React.FC = () => {
                         const supabaseField = F3_TO_SUPABASE_FIELD[colDef.field as string];
 
                         if (isMoney) {
-                            const rawValue = cellVal.replace(/[^0-9.-]/g, '');
-                            const numValue = parseFloat(rawValue);
+                            const rawValue = cellVal.replace(/[^0-9-]/g, '');
+                            const numValue = parseInt(rawValue, 10);
                             if (!isNaN(numValue)) {
                                 updatedItem = { ...updatedItem, [colDef.field]: numValue };
                                 hasChange = true;
@@ -1547,7 +1551,7 @@ export const DatasheetF3: React.FC = () => {
                     </div>
                 </div>
 
-                <div className="overflow-auto flex-1 relative custom-scrollbar">
+                <div className="overflow-auto flex-1 relative custom-scrollbar" ref={tableContainerRef} tabIndex={-1} style={{ outline: 'none' }}>
                     {loading ? (
                         <div className="p-8 text-center text-slate-500">Đang tải dữ liệu...</div>
                     ) : (
